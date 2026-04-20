@@ -2,6 +2,14 @@
 
 An open-source Android app that casts the phone's screen to a Chromecast device over the local Wi-Fi network.  Vibe-coded and unchecked.
 
+## Screenshots
+
+<p>
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-cast-idle.png" width="240" alt="Device list after mDNS discovery" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-settings.png" width="240" alt="Stream tuning settings" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-cast-live.png" width="240" alt="Casting live with transport and volume controls" />
+</p>
+
 ## How it works
 
 - **Discovery**: `NsdManager` finds Chromecasts via mDNS (`_googlecast._tcp.local`).

@@ -4,7 +4,15 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1]
+
+### Added
+- README now renders the F-Droid phone screenshots (device list,
+  settings, and a live cast) from
+  `fastlane/metadata/android/en-US/images/phoneScreenshots/`, so
+  GitHub visitors get the same visual tour F-Droid does.
+
+## [0.4.0]
 
 ### Changed
 - Material 3 UI refresh. The three-tab `PrimaryTabRow` layout collapses
@@ -59,4 +67,5 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
-[Unreleased]: https://github.com/ddagunts/ScreenCast/compare/0.3...HEAD
+[0.4.1]: https://github.com/ddagunts/ScreenCast/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/ddagunts/ScreenCast/compare/v0.3...v0.4.0
