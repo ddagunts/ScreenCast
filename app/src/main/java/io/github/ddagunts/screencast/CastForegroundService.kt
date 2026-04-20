@@ -123,6 +123,10 @@ class CastForegroundService : Service() {
             logE("getMediaProjection failed (resultCode=$resultCode)", e)
             state.value = Phase.Error("media projection failed: ${e.message}")
             stopSelf(); return
+        } ?: run {
+            logE("getMediaProjection returned null (resultCode=$resultCode)")
+            state.value = Phase.Error("media projection unavailable — consent likely denied")
+            stopSelf(); return
         }
         proj.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
