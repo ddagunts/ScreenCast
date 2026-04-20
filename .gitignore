@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+
+# Android
+local.properties
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Kotlin
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Release signing — never commit keystore credentials
+keystore.properties
+*.jks
+*.keystore
