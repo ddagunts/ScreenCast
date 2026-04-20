@@ -1,5 +1,6 @@
 package io.github.ddagunts.screencast.cast
 
+import android.annotation.SuppressLint
 import io.github.ddagunts.screencast.util.logD
 import io.github.ddagunts.screencast.util.logE
 import io.github.ddagunts.screencast.util.logI
@@ -123,6 +124,9 @@ class CastChannel(
     // Chromecasts present a self-signed device certificate whose root isn't in
     // the Android trust store, so the handshake itself accepts anything — real
     // authentication is done by verifyPin() against a TOFU fingerprint store.
+    // The trust-all manager is only installed on this one SSLContext and handed
+    // to the Cast socket; it is not set as the JVM default.
+    @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager")
     private fun trustAllFactory(): SSLSocketFactory {
         val tm = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, auth: String) {}
