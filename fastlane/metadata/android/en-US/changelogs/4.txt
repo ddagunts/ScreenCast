@@ -1,0 +1,13 @@
+Transport controls (Play / Pause / Stop) over the Cast V2 media namespace,
+mirrored to the ongoing notification.
+
+Volume and mute over the Cast V2 receiver namespace, with ±5% step buttons
+and a mute toggle. Disables gracefully for fixed-volume receivers.
+
+Material 3 refresh: single Cast surface with top-bar actions for Settings
+and Logs, dynamic color (Material You) on Android 12+.
+
+Network security config asserts the app's LAN-only posture — no cleartext
+and no trusted CAs for the default HTTP(S) stack, so accidental outbound
+Internet traffic fails loudly. Cast TLS uses its own scoped SSLContext
+with a TOFU fingerprint pin and is unaffected.

@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.ddagunts.screencast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     signingConfigs {
@@ -93,6 +93,10 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    // Icons-extended is ~1 MB uncompressed but R8 strips unused glyphs in
+    // release; debug builds carry the full set. We need Pause/Stop/ContentCopy/
+    // Cast/VolumeOff which are not in material-icons-core.
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)

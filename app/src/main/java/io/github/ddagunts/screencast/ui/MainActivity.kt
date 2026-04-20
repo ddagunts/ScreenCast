@@ -8,31 +8,35 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
 
@@ -46,7 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestPermissionsIfNeeded()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            ScreenCastTheme {
                 Surface(Modifier.fillMaxSize()) { AppScaffold(vm) }
             }
         }
@@ -67,28 +71,72 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Dynamic color pulls the system's Material You palette on API 31+ so the
+// app mirrors the user's wallpaper/accent. Pre-31 devices fall back to the
+// stock dark scheme; we don't ship a bespoke palette.
+@Composable
+private fun ScreenCastTheme(content: @Composable () -> Unit) {
+    val ctx = LocalContext.current
+    val colors = when {
+        Build.VERSION.SDK_INT >= 31 &&
+            ctx.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_NO ->
+                dynamicLightColorScheme(ctx)
+        Build.VERSION.SDK_INT >= 31 -> dynamicDarkColorScheme(ctx)
+        else -> darkColorScheme()
+    }
+    MaterialTheme(colorScheme = colors, content = content)
+}
+
+private enum class Screen { Cast, Settings, Logs }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppScaffold(vm: CastViewModel) {
-    var selected by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Cast", "Settings", "Logs")
+    var screen by rememberSaveable { mutableStateOf(Screen.Cast) }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("ScreenCast") })
+        TopAppBar(
+            title = {
+                Text(when (screen) {
+                    Screen.Cast -> "ScreenCast"
+                    Screen.Settings -> "Settings"
+                    Screen.Logs -> "Logs"
+                })
+            },
+            navigationIcon = {
+                if (screen != Screen.Cast) {
+                    IconButton(onClick = { screen = Screen.Cast }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            },
+            actions = { if (screen == Screen.Cast) CastScreenActions(onOpenSettings = { screen = Screen.Settings }, onOpenLogs = { screen = Screen.Logs }) },
+        )
     }) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
-            PrimaryTabRow(selectedTabIndex = selected) {
-                tabs.forEachIndexed { i, t ->
-                    Tab(selected = selected == i, onClick = { selected = i }, text = { Text(t) })
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.fillMaxWidth().padding(8.dp)) {
-                when (selected) {
-                    0 -> CastControlScreen(vm)
-                    1 -> SettingsScreen(vm)
-                    2 -> LogPanelScreen()
-                }
+        Box(Modifier.fillMaxSize().padding(pad)) {
+            when (screen) {
+                Screen.Cast -> CastControlScreen(vm)
+                Screen.Settings -> SettingsScreen(vm)
+                Screen.Logs -> LogPanelScreen()
             }
         }
+    }
+}
+
+@Composable
+private fun CastScreenActions(onOpenSettings: () -> Unit, onOpenLogs: () -> Unit) {
+    IconButton(onClick = onOpenSettings) {
+        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+    IconButton(onClick = { menuOpen = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+    }
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+            text = { Text("Logs") },
+            onClick = { menuOpen = false; onOpenLogs() },
+        )
     }
 }

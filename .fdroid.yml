@@ -18,7 +18,14 @@ Builds:
     gradle:
       - yes
 
+  - versionName: '0.4.0'
+    versionCode: 4
+    commit: v0.4.0
+    subdir: app
+    gradle:
+      - yes
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: '0.3'
-CurrentVersionCode: 0.3
+CurrentVersion: '0.4.0'
+CurrentVersionCode: 4

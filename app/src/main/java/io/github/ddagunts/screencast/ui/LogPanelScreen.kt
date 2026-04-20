@@ -5,29 +5,30 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.ddagunts.screencast.util.LogRepository
 import kotlinx.coroutines.flow.runningFold
 import java.text.SimpleDateFormat
@@ -50,18 +51,26 @@ fun LogPanelScreen() {
         if (entries.isNotEmpty()) listState.scrollToItem(entries.lastIndex)
     }
 
-    Column(Modifier.fillMaxSize().padding(4.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
-            OutlinedButton(onClick = { copyLogsToClipboard(ctx, entries, df) }) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                "${entries.size} entries",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { copyLogsToClipboard(ctx, entries, df) }) {
                 Text("Copy logs")
             }
-            Spacer(Modifier.width(8.dp))
-            Text("${entries.size} entries", fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
         }
         LazyColumn(state = listState) {
             items(entries) { e ->
-                // App uses darkColorScheme; the old palette (dark blue + dark gray) was
-                // near-invisible on black. Picked from Material A100-A200 tints for contrast.
+                // App uses a dark color scheme; picked from Material A100-A200 tints for
+                // contrast against near-black backgrounds.
                 val color = when (e.level) {
                     LogRepository.Level.E -> Color(0xFFFF5252)
                     LogRepository.Level.W -> Color(0xFFFFB74D)

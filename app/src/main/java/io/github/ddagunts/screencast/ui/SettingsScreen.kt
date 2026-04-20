@@ -1,16 +1,21 @@
 package io.github.ddagunts.screencast.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.ddagunts.screencast.CastForegroundService
@@ -24,60 +29,94 @@ fun SettingsScreen(vm: CastViewModel) {
     val phase by vm.phase.collectAsStateWithLifecycle()
     val live = phase !is CastForegroundService.Phase.Idle
 
-    Column(Modifier.fillMaxWidth().padding(8.dp)) {
-        Text("Stream Tuning", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SettingCard("Resolution") {
+            val resolutions = Resolution.entries
+            val resIdx = resolutions.indexOf(cfg.resolution)
+            Text(
+                "${cfg.resolution.label} · ${cfg.resolution.width}×${cfg.resolution.height} · ${cfg.resolution.bitrate / 1_000_000} Mbps",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = resIdx.toFloat(),
+                onValueChange = { vm.setResolution(resolutions[it.roundToInt().coerceIn(0, resolutions.lastIndex)]) },
+                valueRange = 0f..resolutions.lastIndex.toFloat(),
+                steps = (resolutions.size - 2).coerceAtLeast(0),
+                enabled = !live,
+            )
+        }
 
-        val resolutions = Resolution.entries
-        val resIdx = resolutions.indexOf(cfg.resolution)
-        Text("Resolution: ${cfg.resolution.label} (${cfg.resolution.width}×${cfg.resolution.height}, ${cfg.resolution.bitrate / 1_000_000} Mbps)")
-        Slider(
-            value = resIdx.toFloat(),
-            onValueChange = { vm.setResolution(resolutions[it.roundToInt().coerceIn(0, resolutions.lastIndex)]) },
-            valueRange = 0f..resolutions.lastIndex.toFloat(),
-            steps = (resolutions.size - 2).coerceAtLeast(0),
-            enabled = !live,
-        )
-        Spacer(Modifier.height(8.dp))
+        SettingCard("Segment duration") {
+            Text(
+                "${"%.1f".format(cfg.segmentDurationSec)} s",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = cfg.segmentDurationSec.toFloat(),
+                onValueChange = { vm.setSegmentDuration(((it * 2).roundToInt() / 2.0).coerceIn(StreamConfig.MIN_SEGMENT_SEC, StreamConfig.MAX_SEGMENT_SEC)) },
+                valueRange = StreamConfig.MIN_SEGMENT_SEC.toFloat()..StreamConfig.MAX_SEGMENT_SEC.toFloat(),
+                steps = 5,
+                enabled = !live,
+            )
+        }
 
-        Text("Segment duration: ${"%.1f".format(cfg.segmentDurationSec)} s")
-        Slider(
-            value = cfg.segmentDurationSec.toFloat(),
-            onValueChange = { vm.setSegmentDuration(((it * 2).roundToInt() / 2.0).coerceIn(StreamConfig.MIN_SEGMENT_SEC, StreamConfig.MAX_SEGMENT_SEC)) },
-            valueRange = StreamConfig.MIN_SEGMENT_SEC.toFloat()..StreamConfig.MAX_SEGMENT_SEC.toFloat(),
-            steps = 5,
-            enabled = !live,
-        )
-        Spacer(Modifier.height(8.dp))
+        SettingCard("Playlist window") {
+            Text(
+                "${cfg.windowSize} segments",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = cfg.windowSize.toFloat(),
+                onValueChange = { vm.setWindowSize(it.roundToInt().coerceIn(StreamConfig.MIN_WINDOW, StreamConfig.MAX_WINDOW)) },
+                valueRange = StreamConfig.MIN_WINDOW.toFloat()..StreamConfig.MAX_WINDOW.toFloat(),
+                steps = StreamConfig.MAX_WINDOW - StreamConfig.MIN_WINDOW - 1,
+                enabled = !live,
+            )
+        }
 
-        Text("Playlist window: ${cfg.windowSize} segments")
-        Slider(
-            value = cfg.windowSize.toFloat(),
-            onValueChange = { vm.setWindowSize(it.roundToInt().coerceIn(StreamConfig.MIN_WINDOW, StreamConfig.MAX_WINDOW)) },
-            valueRange = StreamConfig.MIN_WINDOW.toFloat()..StreamConfig.MAX_WINDOW.toFloat(),
-            steps = StreamConfig.MAX_WINDOW - StreamConfig.MIN_WINDOW - 1,
-            enabled = !live,
-        )
-        Spacer(Modifier.height(8.dp))
+        SettingCard("Live-edge target") {
+            Text(
+                "${"%.1f".format(cfg.liveEdgeFactor)}× segments from end",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = cfg.liveEdgeFactor.toFloat(),
+                onValueChange = { vm.setLiveEdgeFactor(((it * 2).roundToInt() / 2.0).coerceIn(StreamConfig.MIN_LIVE_EDGE, StreamConfig.MAX_LIVE_EDGE)) },
+                valueRange = StreamConfig.MIN_LIVE_EDGE.toFloat()..StreamConfig.MAX_LIVE_EDGE.toFloat(),
+                steps = 3,
+                enabled = !live,
+            )
+        }
 
-        Text("Live-edge target: ${"%.1f".format(cfg.liveEdgeFactor)}× segments from end")
-        Slider(
-            value = cfg.liveEdgeFactor.toFloat(),
-            onValueChange = { vm.setLiveEdgeFactor(((it * 2).roundToInt() / 2.0).coerceIn(StreamConfig.MIN_LIVE_EDGE, StreamConfig.MAX_LIVE_EDGE)) },
-            valueRange = StreamConfig.MIN_LIVE_EDGE.toFloat()..StreamConfig.MAX_LIVE_EDGE.toFloat(),
-            steps = 3,
-            enabled = !live,
-        )
-        Spacer(Modifier.height(12.dp))
+        SettingCard("Stream summary") {
+            val startupSec = cfg.segmentDurationSec * cfg.seedSegmentCount
+            Text("Startup buffering: ~${"%.1f".format(startupSec)} s", style = MaterialTheme.typography.bodyMedium)
+            Text("Live-edge lag: ~${"%.1f".format(cfg.estimatedLatencySec)} s", style = MaterialTheme.typography.bodyMedium)
+            Text("Keyframe interval: ${cfg.keyframeIntervalSec} s", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (live) "Stop the current cast to change settings."
+                else "Lower live-edge target = less delay, but more likely to stall on jitter. Try 1.0× if your Wi-Fi is rock solid.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
 
-        val startupSec = cfg.segmentDurationSec * cfg.seedSegmentCount
-        Text("Startup buffering: ~${"%.1f".format(startupSec)} s (until first frame)")
-        Text("Live-edge lag: ~${"%.1f".format(cfg.estimatedLatencySec)} s (player position vs. live)")
-        Text("Keyframe interval: ${cfg.keyframeIntervalSec} s")
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (live) "Stop the current cast to change settings."
-            else "Lower live-edge target = less delay, but more likely to stall on jitter. Try 1.0× if your Wi-Fi is rock solid.",
-        )
+@Composable
+private fun SettingCard(title: String, content: @Composable () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            content()
+        }
     }
 }
