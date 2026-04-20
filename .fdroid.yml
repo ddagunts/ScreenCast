@@ -11,14 +11,14 @@ RepoType: git
 Repo: https://github.com/ddagunts/ScreenCast.git
 
 Builds:
-  - versionName: '0.1'
-    versionCode: 1
-    commit: v0.1
+  - versionName: '0.3'
+    versionCode: 0.3
+    commit: v0.3
     subdir: app
     gradle:
       - yes
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: '0.1'
-CurrentVersionCode: 1
+CurrentVersion: '0.3'
+CurrentVersionCode: 0.3

@@ -7,7 +7,7 @@ An open-source Android app that casts the phone's screen to a Chromecast device 
 - **Discovery**: `NsdManager` finds Chromecasts via mDNS (`_googlecast._tcp.local`).
 - **Control channel**: TLS socket to Chromecast port 8009, Cast V2 protocol implemented in pure Kotlin (connection / heartbeat / receiver / media namespaces).
 - **Capture**: Android `MediaProjection` + `MediaCodec` (H.264), optional audio via `AudioPlaybackCapture`.
-- **Transport**: HLS served from an embedded Ktor HTTP server on the phone (port 8080). The playlist lives under a path gated by a 128-bit random token (e.g. `http://<phone-ip>:8080/c/<token>/stream.m3u8`); the token is generated fresh per cast session and is only valid while the foreground service is running. The Chromecast loads that URL through the Default Media Receiver (App ID `CC1AD845`). Expect ~5–10 s of latency.
+- **Transport**: HLS served from an embedded Ktor HTTP server on the phone. The server binds only to the Wi-Fi interface IP on a freshly-picked ephemeral port (not `0.0.0.0:8080`), so it isn't reachable over cellular or any other interface. The playlist lives under a path gated by a 128-bit random token (e.g. `http://<phone-ip>:<port>/c/<token>/stream.m3u8`); the token is generated fresh per cast session and is only valid while the foreground service is running. The Chromecast loads that URL through the Default Media Receiver (App ID `CC1AD845`). Expect ~5–10 s of latency.
 
 > **Don't tighten CORS on the HTTP server.** `HttpStreamServer.kt` sets `anyHost()` on purpose: the hls.js player inside the Default Media Receiver fetches from a `google.com` origin we can't hardcode, and the URL-path token is the real authentication gate. Narrowing CORS will silently break playback.
 

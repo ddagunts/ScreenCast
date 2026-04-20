@@ -38,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.net.ServerSocket
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -163,16 +164,20 @@ class CastForegroundService : Service() {
         val cap = ScreenCapture(this).also { capture = it }
         cap.start(proj, enc.inputSurface, size)
 
-        val token = newStreamToken()
-        val srv = HttpStreamServer(HTTP_PORT, seg, token).also { server = it }
-        srv.start()
-
-        val ip = NetworkUtils.getWifiIpAddress() ?: run {
+        val ip = NetworkUtils.getWifiIpAddress(this) ?: run {
             logE("no LAN IP — cannot tell Chromecast where to fetch")
             _state.value = Phase.Error("no LAN IP — is Wi-Fi connected?")
             teardown(); stopSelf(); return
         }
-        val url = "http://$ip:$HTTP_PORT/c/$token/stream.m3u8"
+        // Ask the kernel for a free ephemeral port, then hand it to Ktor. Brief
+        // TOCTOU window is acceptable on a single-user device.
+        val httpPort = ServerSocket(0).use { it.localPort }
+
+        val token = newStreamToken()
+        val srv = HttpStreamServer(ip, httpPort, seg, token).also { server = it }
+        srv.start()
+
+        val url = "http://$ip:$httpPort/c/$token/stream.m3u8"
         _state.value = Phase.Starting(dev, url)
 
         sessionJob = scope.launch {
@@ -262,7 +267,6 @@ class CastForegroundService : Service() {
         const val EXTRA_RESOLUTION = "resolution"
         const val CHANNEL_ID = "cast"
         const val NOTIFICATION_ID = 1
-        const val HTTP_PORT = 8080
 
         private val _state = MutableStateFlow<Phase>(Phase.Idle)
         val flow: StateFlow<Phase> = _state

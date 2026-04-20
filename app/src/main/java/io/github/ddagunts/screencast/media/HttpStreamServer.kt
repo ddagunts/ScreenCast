@@ -19,6 +19,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 
 class HttpStreamServer(
+    private val host: String,
     private val port: Int,
     private val segmenter: HlsSegmenter,
     private val token: String,
@@ -26,7 +27,7 @@ class HttpStreamServer(
     private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     fun start() {
-        engine = embeddedServer(CIO, port = port, host = "0.0.0.0") {
+        engine = embeddedServer(CIO, port = port, host = host) {
             install(AutoHeadResponse)
             install(CORS) {
                 // Token in the URL path is the real auth gate; CORS stays wide because
@@ -68,7 +69,7 @@ class HttpStreamServer(
                 }
             }
         }.also { it.start(wait = false) }
-        logI("HTTP server listening on :$port (token-gated)")
+        logI("HTTP server listening on $host:$port (token-gated)")
     }
 
     // Constant-time comparison to avoid leaking token via timing on the LAN.
