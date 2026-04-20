@@ -31,6 +31,7 @@ import io.github.ddagunts.screencast.util.logI
 import io.github.ddagunts.screencast.util.logW
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -38,11 +39,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
-import android.util.Base64
+import java.util.Base64
 
 class CastForegroundService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // Cancelled on teardown so a new ACTION_START can't produce overlapping phase
+    // emissions from a half-stopped previous session.
+    private var sessionJob: Job? = null
     private var session: CastSession? = null
     private var encoder: VideoEncoder? = null
     private var audioEncoder: AudioEncoder? = null
@@ -58,7 +62,7 @@ class CastForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        state.value = Phase.Idle
+        _state.value = Phase.Idle
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -90,13 +94,16 @@ class CastForegroundService : Service() {
             }
             ACTION_STOP -> {
                 teardown()
-                state.value = Phase.Idle
+                _state.value = Phase.Idle
                 stopSelf()
             }
         }
         return START_NOT_STICKY
     }
 
+    // Must be called *before* MediaProjectionManager.getMediaProjection(). On API 35+
+    // the mediaProjection FGS type requires the service to already be foreground; the
+    // getMediaProjection call otherwise throws SecurityException.
     private fun startForegroundNow(deviceName: String) {
         val stopPending = PendingIntent.getService(
             this, 0,
@@ -121,18 +128,18 @@ class CastForegroundService : Service() {
             mpm.getMediaProjection(resultCode, resultData)
         } catch (e: Throwable) {
             logE("getMediaProjection failed (resultCode=$resultCode)", e)
-            state.value = Phase.Error("media projection failed: ${e.message}")
+            _state.value = Phase.Error("media projection failed: ${e.message}")
             stopSelf(); return
         } ?: run {
             logE("getMediaProjection returned null (resultCode=$resultCode)")
-            state.value = Phase.Error("media projection unavailable — consent likely denied")
+            _state.value = Phase.Error("media projection unavailable — consent likely denied")
             stopSelf(); return
         }
         proj.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 logI("MediaProjection stopped")
                 teardown()
-                state.value = Phase.Idle
+                _state.value = Phase.Idle
                 stopSelf()
             }
         }, null)
@@ -162,13 +169,13 @@ class CastForegroundService : Service() {
 
         val ip = NetworkUtils.getWifiIpAddress() ?: run {
             logE("no LAN IP — cannot tell Chromecast where to fetch")
-            state.value = Phase.Error("no LAN IP — is Wi-Fi connected?")
+            _state.value = Phase.Error("no LAN IP — is Wi-Fi connected?")
             teardown(); stopSelf(); return
         }
         val url = "http://$ip:$HTTP_PORT/c/$token/stream.m3u8"
-        state.value = Phase.Starting(dev, url)
+        _state.value = Phase.Starting(dev, url)
 
-        scope.launch {
+        sessionJob = scope.launch {
             val seedTarget = config.seedSegmentCount
             for (attempt in 0 until 150) {
                 if (seg.readySegmentCount() >= seedTarget) break
@@ -176,13 +183,14 @@ class CastForegroundService : Service() {
             }
             if (seg.readySegmentCount() < seedTarget) {
                 logE("only ${seg.readySegmentCount()} segments after 15s (wanted $seedTarget)")
-                state.value = Phase.Error("encoder produced too few segments")
+                _state.value = Phase.Error("encoder produced too few segments")
                 teardown(); stopSelf(); return@launch
             }
             val s = CastSession(dev, CastCertPinStore(this@CastForegroundService)).also { session = it }
-            scope.launch {
+            // child of sessionJob: cancelled via sessionJob.cancel() in teardown()
+            launch {
                 s.state.collect { cs ->
-                    state.value = when (cs) {
+                    _state.value = when (cs) {
                         is CastState.Idle -> Phase.Idle
                         is CastState.Connecting -> Phase.Starting(dev, url)
                         is CastState.Casting -> Phase.Casting(dev, url)
@@ -198,12 +206,13 @@ class CastForegroundService : Service() {
     // Resource cleanup only. Callers are responsible for setting `state` — an
     // earlier Phase.Error must survive so the user sees what went wrong.
     private fun teardown() {
-        runCatching { session?.stop() }
-        runCatching { capture?.stop() }
-        runCatching { encoder?.stop() }
-        runCatching { audioEncoder?.stop() }
-        runCatching { server?.stop() }
-        runCatching { projection?.stop() }
+        sessionJob?.cancel(); sessionJob = null
+        runCatching { session?.stop() }.onFailure { logW("teardown session: $it") }
+        runCatching { capture?.stop() }.onFailure { logW("teardown capture: $it") }
+        runCatching { encoder?.stop() }.onFailure { logW("teardown encoder: $it") }
+        runCatching { audioEncoder?.stop() }.onFailure { logW("teardown audioEncoder: $it") }
+        runCatching { server?.stop() }.onFailure { logW("teardown server: $it") }
+        runCatching { projection?.stop() }.onFailure { logW("teardown projection: $it") }
         session = null; capture = null; encoder = null; audioEncoder = null
         server = null; segmenter = null; projection = null
         logW("pipeline torn down")
@@ -220,7 +229,7 @@ class CastForegroundService : Service() {
     private fun newStreamToken(): String {
         val bytes = ByteArray(16)
         SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 
     private fun createChannel() {
@@ -257,7 +266,6 @@ class CastForegroundService : Service() {
         const val HTTP_PORT = 8080
 
         private val _state = MutableStateFlow<Phase>(Phase.Idle)
-        val state: MutableStateFlow<Phase> = _state
         val flow: StateFlow<Phase> = _state
     }
 }

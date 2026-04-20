@@ -10,6 +10,7 @@ captures/
 *.aab
 *.ap_
 *.dex
+build.sh
 
 # IntelliJ / Android Studio
 .idea/
@@ -20,14 +21,8 @@ captures/
 # Kotlin
 .kotlin/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Claude Code local settings
-.claude/settings.local.json
-
 # Release signing — never commit keystore credentials
 keystore.properties
 *.jks
 *.keystore
+

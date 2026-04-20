@@ -9,6 +9,7 @@ import io.ktor.http.HttpMethod
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.cio.CIOApplicationEngine
+import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.autohead.AutoHeadResponse
 import io.ktor.server.plugins.cors.routing.CORS
@@ -22,7 +23,7 @@ class HttpStreamServer(
     private val segmenter: HlsSegmenter,
     private val token: String,
 ) {
-    private var engine: CIOApplicationEngine? = null
+    private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     fun start() {
         engine = embeddedServer(CIO, port = port, host = "0.0.0.0") {

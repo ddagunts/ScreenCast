@@ -20,7 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
@@ -76,7 +76,7 @@ private fun AppScaffold(vm: CastViewModel) {
         TopAppBar(title = { Text("ScreenCast") })
     }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            TabRow(selectedTabIndex = selected) {
+            PrimaryTabRow(selectedTabIndex = selected) {
                 tabs.forEachIndexed { i, t ->
                     Tab(selected = selected == i, onClick = { selected = i }, text = { Text(t) })
                 }

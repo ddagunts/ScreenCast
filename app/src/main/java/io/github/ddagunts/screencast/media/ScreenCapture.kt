@@ -4,9 +4,7 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
-import android.util.DisplayMetrics
 import android.view.Surface
-import android.view.WindowManager
 import io.github.ddagunts.screencast.util.logI
 
 class ScreenCapture(private val context: Context) {
@@ -33,10 +31,7 @@ class ScreenCapture(private val context: Context) {
         // display is letterboxed inside this surface; this is the same approach Google's Cast
         // sender uses for screen mirroring.
         fun sizeFor(context: Context, resolution: Resolution): Size {
-            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val dm = DisplayMetrics()
-            @Suppress("DEPRECATION") wm.defaultDisplay.getRealMetrics(dm)
-            return Size(resolution.width, resolution.height, dm.densityDpi)
+            return Size(resolution.width, resolution.height, context.resources.configuration.densityDpi)
         }
     }
 }
