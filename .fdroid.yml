@@ -1,0 +1,24 @@
+Categories:
+  - Multimedia
+License: Apache-2.0
+AuthorName: Dmitry Dagunts
+SourceCode: https://github.com/ddagunts/ScreenCast
+IssueTracker: https://github.com/ddagunts/ScreenCast/issues
+
+AutoName: ScreenCast
+
+RepoType: git
+Repo: https://github.com/ddagunts/ScreenCast.git
+
+Builds:
+  - versionName: '0.1'
+    versionCode: 1
+    commit: v0.1
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '0.1'
+CurrentVersionCode: 1

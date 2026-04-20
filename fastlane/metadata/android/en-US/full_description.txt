@@ -1,0 +1,18 @@
+ScreenCast mirrors your Android screen to a Chromecast over the local Wi-Fi network, with no dependency on the Google Home app, Google Play Services, or the proprietary Google Cast SDK.
+
+The app implements the Cast V2 protocol directly in Kotlin: it discovers devices via mDNS, opens a TLS connection on port 8009, and speaks to the Default Media Receiver using open protobuf schemas. Captured frames are encoded with H.264 and served as an HLS stream from an embedded Ktor HTTP server on the phone; expect 5-10 seconds of latency.
+
+Features:
+
+* No Google account required.
+* No proprietary SDKs, analytics, or tracking.
+* Works entirely over the local Wi-Fi network.
+* Foreground service with a stop-casting notification.
+* Optional audio capture (Android 10+).
+
+Requirements:
+
+* Android 8.0 (API 26) or newer.
+* A Chromecast on the same Wi-Fi network.
+
+Status: early release - expect rough edges. Latency is high by design while this initial phase uses the built-in Default Media Receiver; a WebRTC-based low-latency mode is planned.

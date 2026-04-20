@@ -50,7 +50,7 @@ Then `./gradlew assembleRelease`. Without credentials `assembleRelease` still ru
 ## Project layout
 
 ```
-app/src/main/java/com/example/screencast/
+app/src/main/java/io/github/ddagunts/screencast/
 ├── cast/     # Cast V2 protocol (discovery, TLS channel, session FSM)
 ├── media/    # Screen capture, H.264 encode, HLS muxer, Ktor server
 ├── ui/       # Jetpack Compose UI + ViewModel

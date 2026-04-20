@@ -1,0 +1,7 @@
+Initial release.
+
+* Chromecast discovery via mDNS (NsdManager).
+* Cast V2 protocol over TLS, pure-Kotlin implementation.
+* Screen capture via MediaProjection, H.264 encoding via MediaCodec.
+* HLS streaming from an embedded Ktor HTTP server.
+* Foreground service with stop-casting notification.
