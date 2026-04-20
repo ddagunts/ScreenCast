@@ -8,6 +8,7 @@ import io.github.ddagunts.screencast.CastForegroundService
 import io.github.ddagunts.screencast.MediaProjectionRequestActivity
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastDiscovery
+import io.github.ddagunts.screencast.cast.CastVolume
 import io.github.ddagunts.screencast.media.Resolution
 import io.github.ddagunts.screencast.media.StreamConfig
 import io.github.ddagunts.screencast.media.StreamConfigStore
@@ -24,6 +25,16 @@ class CastViewModel(app: Application) : AndroidViewModel(app) {
     val phase: StateFlow<CastForegroundService.Phase> =
         CastForegroundService.flow.stateIn(
             viewModelScope, SharingStarted.Eagerly, CastForegroundService.Phase.Idle
+        )
+
+    val playerState: StateFlow<String> =
+        CastForegroundService.playerStateFlow.stateIn(
+            viewModelScope, SharingStarted.Eagerly, "IDLE"
+        )
+
+    val volume: StateFlow<CastVolume> =
+        CastForegroundService.volumeFlow.stateIn(
+            viewModelScope, SharingStarted.Eagerly, CastVolume()
         )
 
     private val store = StreamConfigStore(app)
@@ -60,11 +71,31 @@ class CastViewModel(app: Application) : AndroidViewModel(app) {
         ctx.startActivity(intent)
     }
 
-    fun stopCast() {
+    fun stopCast() = sendServiceAction(CastForegroundService.ACTION_STOP)
+    fun pause() = sendServiceAction(CastForegroundService.ACTION_PAUSE)
+    fun play() = sendServiceAction(CastForegroundService.ACTION_PLAY)
+
+    fun setVolume(level: Double) {
         val ctx = getApplication<Application>()
         ctx.startService(
-            Intent(ctx, CastForegroundService::class.java).setAction(CastForegroundService.ACTION_STOP)
+            Intent(ctx, CastForegroundService::class.java)
+                .setAction(CastForegroundService.ACTION_SET_VOLUME)
+                .putExtra(CastForegroundService.EXTRA_VOLUME_LEVEL, level)
         )
+    }
+
+    fun setMute(muted: Boolean) {
+        val ctx = getApplication<Application>()
+        ctx.startService(
+            Intent(ctx, CastForegroundService::class.java)
+                .setAction(CastForegroundService.ACTION_SET_MUTE)
+                .putExtra(CastForegroundService.EXTRA_MUTED, muted)
+        )
+    }
+
+    private fun sendServiceAction(action: String) {
+        val ctx = getApplication<Application>()
+        ctx.startService(Intent(ctx, CastForegroundService::class.java).setAction(action))
     }
 
     override fun onCleared() {

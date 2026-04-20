@@ -75,3 +75,43 @@ fun mediaStopMsg(transportId: String, mediaSessionId: Int): Pair<CastMessage, In
         .toString()
     return CastMessage(SENDER_ID, transportId, CastNs.MEDIA, payload) to reqId
 }
+
+fun mediaPauseMsg(transportId: String, mediaSessionId: Int): Pair<CastMessage, Int> =
+    simpleMediaCmd(transportId, mediaSessionId, "PAUSE")
+
+fun mediaPlayMsg(transportId: String, mediaSessionId: Int): Pair<CastMessage, Int> =
+    simpleMediaCmd(transportId, mediaSessionId, "PLAY")
+
+private fun simpleMediaCmd(transportId: String, mediaSessionId: Int, type: String): Pair<CastMessage, Int> {
+    val reqId = nextRequestId()
+    val payload = JSONObject()
+        .put("type", type)
+        .put("requestId", reqId)
+        .put("mediaSessionId", mediaSessionId)
+        .toString()
+    return CastMessage(SENDER_ID, transportId, CastNs.MEDIA, payload) to reqId
+}
+
+// Volume is set on the receiver (top-level device), not a media session — it
+// applies even if nothing is currently playing. `level` is clamped to [0,1].
+fun setVolumeMsg(level: Double): Pair<CastMessage, Int> {
+    val reqId = nextRequestId()
+    val volume = JSONObject().put("level", level.coerceIn(0.0, 1.0))
+    val payload = JSONObject()
+        .put("type", "SET_VOLUME")
+        .put("requestId", reqId)
+        .put("volume", volume)
+        .toString()
+    return CastMessage(SENDER_ID, DEFAULT_RECEIVER_ID, CastNs.RECEIVER, payload) to reqId
+}
+
+fun setMuteMsg(muted: Boolean): Pair<CastMessage, Int> {
+    val reqId = nextRequestId()
+    val volume = JSONObject().put("muted", muted)
+    val payload = JSONObject()
+        .put("type", "SET_VOLUME")
+        .put("requestId", reqId)
+        .put("volume", volume)
+        .toString()
+    return CastMessage(SENDER_ID, DEFAULT_RECEIVER_ID, CastNs.RECEIVER, payload) to reqId
+}

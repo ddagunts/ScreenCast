@@ -17,6 +17,7 @@ import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastSession
 import io.github.ddagunts.screencast.cast.CastState
+import io.github.ddagunts.screencast.cast.CastVolume
 import io.github.ddagunts.screencast.cast.DEFAULT_MEDIA_RECEIVER
 import io.github.ddagunts.screencast.media.AudioEncoder
 import io.github.ddagunts.screencast.media.HlsSegmenter
@@ -57,6 +58,7 @@ class CastForegroundService : Service() {
     private var device: CastDevice? = null
     private var config: StreamConfig = StreamConfig()
     private var projection: MediaProjection? = null
+    private var deviceName: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +70,18 @@ class CastForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_PAUSE -> { scope.launch { session?.pause() }; return START_NOT_STICKY }
+            ACTION_PLAY  -> { scope.launch { session?.play() };  return START_NOT_STICKY }
+            ACTION_SET_VOLUME -> {
+                val level = intent.getDoubleExtra(EXTRA_VOLUME_LEVEL, -1.0)
+                if (level >= 0.0) scope.launch { session?.setVolume(level) }
+                return START_NOT_STICKY
+            }
+            ACTION_SET_MUTE -> {
+                val muted = intent.getBooleanExtra(EXTRA_MUTED, false)
+                scope.launch { session?.setMute(muted) }
+                return START_NOT_STICKY
+            }
             ACTION_START -> {
                 val name = intent.getStringExtra(EXTRA_DEVICE_NAME) ?: "?"
                 val host = intent.getStringExtra(EXTRA_DEVICE_HOST) ?: return START_NOT_STICKY
@@ -90,6 +104,7 @@ class CastForegroundService : Service() {
                     resolution = resolution,
                 )
                 logI("stream config: ${config.resolution.label} segment=${config.segmentDurationSec}s window=${config.windowSize} keyframe=${config.keyframeIntervalSec}s seed=${config.seedSegmentCount} liveEdge=${config.liveEdgeFactor}x")
+                deviceName = name
                 startForegroundNow(name)
                 startPipeline(code, data, device!!)
             }
@@ -106,20 +121,36 @@ class CastForegroundService : Service() {
     // the mediaProjection FGS type requires the service to already be foreground; the
     // getMediaProjection call otherwise throws SecurityException.
     private fun startForegroundNow(deviceName: String) {
-        val stopPending = PendingIntent.getService(
-            this, 0,
-            Intent(this, CastForegroundService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val notif: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Casting to $deviceName")
-            .setContentText("Tap Stop to end")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setOngoing(true)
-            .addAction(0, "Stop", stopPending)
-            .build()
+        val notif = buildNotification(deviceName, _playerState.value)
         val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notif, type)
+    }
+
+    private fun servicePending(action: String, requestCode: Int): PendingIntent =
+        PendingIntent.getService(
+            this, requestCode,
+            Intent(this, CastForegroundService::class.java).setAction(action),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+    private fun buildNotification(deviceName: String, playerState: String): Notification {
+        val isPaused = playerState.equals("PAUSED", ignoreCase = true)
+        val toggleAction = if (isPaused) ACTION_PLAY else ACTION_PAUSE
+        val toggleLabel = if (isPaused) "Play" else "Pause"
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Casting to $deviceName")
+            .setContentText(if (isPaused) "Paused — tap Play to resume" else "Tap Stop to end")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setOngoing(true)
+            .addAction(0, toggleLabel, servicePending(toggleAction, 1))
+            .addAction(0, "Stop", servicePending(ACTION_STOP, 0))
+            .build()
+    }
+
+    private fun refreshNotification() {
+        if (deviceName.isEmpty()) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        nm.notify(NOTIFICATION_ID, buildNotification(deviceName, _playerState.value))
     }
 
     private fun startPipeline(resultCode: Int, resultData: Intent, dev: CastDevice) {
@@ -203,6 +234,13 @@ class CastForegroundService : Service() {
                     }
                 }
             }
+            launch {
+                s.playerState.collect { ps ->
+                    _playerState.value = ps
+                    refreshNotification()
+                }
+            }
+            launch { s.volume.collect { _volume.value = it } }
             s.startCast(DEFAULT_MEDIA_RECEIVER, url, "application/x-mpegURL")
             logI("cast pipeline live at $url")
         }
@@ -220,6 +258,9 @@ class CastForegroundService : Service() {
         runCatching { projection?.stop() }.onFailure { logW("teardown projection: $it") }
         session = null; capture = null; encoder = null; audioEncoder = null
         server = null; segmenter = null; projection = null
+        deviceName = ""
+        _playerState.value = "IDLE"
+        _volume.value = CastVolume()
         logW("pipeline torn down")
     }
 
@@ -256,6 +297,10 @@ class CastForegroundService : Service() {
     companion object {
         const val ACTION_START = "io.github.ddagunts.screencast.START"
         const val ACTION_STOP = "io.github.ddagunts.screencast.STOP"
+        const val ACTION_PAUSE = "io.github.ddagunts.screencast.PAUSE"
+        const val ACTION_PLAY = "io.github.ddagunts.screencast.PLAY"
+        const val ACTION_SET_VOLUME = "io.github.ddagunts.screencast.SET_VOLUME"
+        const val ACTION_SET_MUTE = "io.github.ddagunts.screencast.SET_MUTE"
         const val EXTRA_DEVICE_NAME = "device_name"
         const val EXTRA_DEVICE_HOST = "device_host"
         const val EXTRA_DEVICE_PORT = "device_port"
@@ -265,10 +310,18 @@ class CastForegroundService : Service() {
         const val EXTRA_WINDOW_SIZE = "window_size"
         const val EXTRA_LIVE_EDGE = "live_edge_factor"
         const val EXTRA_RESOLUTION = "resolution"
+        const val EXTRA_VOLUME_LEVEL = "volume_level"
+        const val EXTRA_MUTED = "muted"
         const val CHANNEL_ID = "cast"
         const val NOTIFICATION_ID = 1
 
         private val _state = MutableStateFlow<Phase>(Phase.Idle)
         val flow: StateFlow<Phase> = _state
+
+        private val _playerState = MutableStateFlow("IDLE")
+        val playerStateFlow: StateFlow<String> = _playerState
+
+        private val _volume = MutableStateFlow(CastVolume())
+        val volumeFlow: StateFlow<CastVolume> = _volume
     }
 }

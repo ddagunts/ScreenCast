@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network posture assertion for ScreenCast.
+
+  The only network traffic this app initiates is:
+    1. mDNS discovery on the local Wi-Fi (NsdManager / UDP multicast).
+    2. TLS to the chosen Chromecast on port 8009. See cast/CastChannel.kt —
+       that socket is built from its own SSLContext with a TOFU fingerprint
+       pin store, so it is authenticated independently of the trust anchors
+       declared here.
+  Additionally, the app runs a *server* socket (media/HttpStreamServer.kt)
+  that the Chromecast fetches the HLS stream from; NSC does not govern
+  inbound traffic.
+
+  No outbound Internet traffic is expected via the platform HTTP(S) stack
+  (HttpURLConnection / OkHttp / WebView). This config makes that assertion
+  enforceable:
+    - cleartextTrafficPermitted="false"  => no plain HTTP clients
+    - empty <trust-anchors/>             => no CAs trusted by the default SSL
+                                             stack, so any accidental HTTPS
+                                             call fails loudly instead of
+                                             silently phoning home.
+  A future change that legitimately needs outbound HTTPS (e.g. fetching a
+  custom receiver manifest) must relax this file explicitly.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors />
+    </base-config>
+</network-security-config>

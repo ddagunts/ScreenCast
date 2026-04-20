@@ -21,10 +21,30 @@ sealed class CastState {
     data class Error(val message: String) : CastState()
 }
 
+// controlType: "master" (device owns volume), "attenuation" (relative only), or
+// "fixed" (cannot be changed — surface amp / soundbar). UI must disable the
+// slider when fixed; sending SET_VOLUME will be silently ignored by the receiver.
+data class CastVolume(
+    val level: Double = 1.0,
+    val muted: Boolean = false,
+    val controlType: String = "master",
+) {
+    val isFixed: Boolean get() = controlType.equals("fixed", ignoreCase = true)
+}
+
 class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
     private val channel = CastChannel(device.host, device.port, pinStore)
     private val _state = MutableStateFlow<CastState>(CastState.Idle)
     val state: StateFlow<CastState> = _state
+
+    // Player state authority is the receiver — every transition comes from a
+    // MEDIA_STATUS push. We never optimistically flip this on a local command;
+    // doing so masks LOAD_FAILED and PAUSE rejections.
+    private val _playerState = MutableStateFlow("IDLE")
+    val playerState: StateFlow<String> = _playerState
+
+    private val _volume = MutableStateFlow(CastVolume())
+    val volume: StateFlow<CastVolume> = _volume
 
     private var scope: CoroutineScope? = null
     private var readerJob: Job? = null
@@ -85,6 +105,32 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
         }
     }
 
+    // Pause/play are no-ops until LAUNCH completes and the receiver has sent
+    // back a MEDIA_STATUS with a mediaSessionId. The UI is expected to keep the
+    // buttons disabled until `state` becomes Casting; this is belt-and-suspenders.
+    suspend fun pause() {
+        val tid = transportId ?: return logW("pause: no transportId yet")
+        val mid = mediaSessionId ?: return logW("pause: no mediaSessionId yet")
+        channel.send(mediaPauseMsg(tid, mid).first)
+    }
+
+    suspend fun play() {
+        val tid = transportId ?: return logW("play: no transportId yet")
+        val mid = mediaSessionId ?: return logW("play: no mediaSessionId yet")
+        channel.send(mediaPlayMsg(tid, mid).first)
+    }
+
+    // Volume lives on the receiver, not the media session, so it works before
+    // LOAD completes. No transport/session id needed.
+    suspend fun setVolume(level: Double) {
+        if (_volume.value.isFixed) return logW("setVolume: receiver reports fixed volume")
+        channel.send(setVolumeMsg(level).first)
+    }
+
+    suspend fun setMute(muted: Boolean) {
+        channel.send(setMuteMsg(muted).first)
+    }
+
     fun close() {
         readerJob?.cancel()
         channel.close()
@@ -121,6 +167,16 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
 
     private fun parseReceiverStatus(obj: JSONObject) {
         val status = obj.optJSONObject("status") ?: return
+        // Volume is reported at the receiver level independent of any active app,
+        // so parse it before bailing on the empty-applications case.
+        status.optJSONObject("volume")?.let { v ->
+            val current = _volume.value
+            _volume.value = CastVolume(
+                level = v.optDouble("level", current.level),
+                muted = v.optBoolean("muted", current.muted),
+                controlType = v.optString("controlType").ifEmpty { current.controlType },
+            )
+        }
         val apps = status.optJSONArray("applications") ?: return
         if (apps.length() == 0) return
         val app = apps.getJSONObject(0)
@@ -135,6 +191,8 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
         val s = arr.getJSONObject(0)
         val msid = s.optInt("mediaSessionId", -1)
         if (msid > 0) mediaSessionId = msid
-        logI("media status: playerState=${s.optString("playerState")} mediaSessionId=$msid")
+        val ps = s.optString("playerState")
+        if (ps.isNotEmpty()) _playerState.value = ps
+        logI("media status: playerState=$ps mediaSessionId=$msid")
     }
 }
