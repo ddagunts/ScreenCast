@@ -1,0 +1,8 @@
+Hold a screen wake lock while casting — the phone no longer sleeps
+mid-cast, so MediaProjection keeps capturing when the phone is set down.
+
+Fine-grained volume option: toggle "Fine" in the volume card to step by
+1% per tap instead of the default 5%. The choice is persisted.
+
+Fix the dark/light theme reading the system configuration via a path
+that wouldn't recompose on mode changes.

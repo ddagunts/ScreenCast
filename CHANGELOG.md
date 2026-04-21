@@ -4,6 +4,26 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3]
+
+### Added
+- Screen wake lock held by `CastForegroundService` for the lifetime
+  of a cast session. The phone no longer sleeps mid-cast, so
+  `MediaProjection` keeps feeding frames while the phone is set
+  down. `SCREEN_DIM_WAKE_LOCK` so the user's brightness preference
+  is respected; released in `teardown()`.
+- Fine-grained volume adjustment option. A "Fine" toggle in the
+  volume card swaps the ± step from 5% to 1%. Persisted via
+  `StreamConfigStore` alongside the other stream prefs.
+
+### Fixed
+- Theme recomposition on runtime dark-mode toggle. The dynamic
+  color scheme was reading `LocalContext.current.resources.configuration`,
+  which Compose's `LocalContextConfigurationRead` lint rule flags —
+  `LocalContext` reads don't invalidate on configuration changes, so
+  the color scheme could go stale until the Activity restarted.
+  Switched to `LocalConfiguration.current.uiMode`. CI lint now passes.
+
 ## [0.4.1]
 
 ### Added
@@ -67,5 +87,6 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.4.3]: https://github.com/ddagunts/ScreenCast/compare/v0.4.1...v0.4.3
 [0.4.1]: https://github.com/ddagunts/ScreenCast/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ddagunts/ScreenCast/compare/v0.3...v0.4.0
