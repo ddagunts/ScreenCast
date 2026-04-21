@@ -28,13 +28,13 @@ class StreamConfigTest {
         assertEquals(3.0, c.estimatedLatencySec, 0.001)
     }
 
-    @Test fun `sync start defaults to off`() {
-        assertEquals(false, StreamConfig().syncStart)
+    @Test fun `sync start defaults to on`() {
+        assertEquals(true, StreamConfig().syncStart)
     }
 
-    @Test fun `sync interval defaults to 15s and drift to 15ms`() {
-        assertEquals(15, StreamConfig().syncIntervalSec)
-        assertEquals(15, StreamConfig().syncDriftThresholdMs)
+    @Test fun `sync interval default is 30s and drift default is 20ms`() {
+        assertEquals(30, StreamConfig().syncIntervalSec)
+        assertEquals(20, StreamConfig().syncDriftThresholdMs)
     }
 
     @Test fun `sync interval bounds span from 5s to 60s`() {

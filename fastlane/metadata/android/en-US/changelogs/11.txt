@@ -1,0 +1,4 @@
+• Sync interval / drift threshold are now dropdowns with
+  discrete values, not sliders
+• Sync start enabled by default; new defaults 30 s interval,
+  20 ms drift threshold

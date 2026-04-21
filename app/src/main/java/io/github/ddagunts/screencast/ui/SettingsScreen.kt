@@ -12,8 +12,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -22,6 +28,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -136,35 +145,31 @@ fun SettingsScreen(vm: CastViewModel) {
         // is intentional.
         SettingCard("Sync check interval") {
             Text(
-                "${cfg.syncIntervalSec} s",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
                 "How often to check receivers for drift.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Slider(
-                value = cfg.syncIntervalSec.toFloat(),
-                onValueChange = { vm.setSyncIntervalSec(it.roundToInt().coerceIn(StreamConfig.MIN_SYNC_INTERVAL_SEC, StreamConfig.MAX_SYNC_INTERVAL_SEC)) },
-                valueRange = StreamConfig.MIN_SYNC_INTERVAL_SEC.toFloat()..StreamConfig.MAX_SYNC_INTERVAL_SEC.toFloat(),
+            Spacer(Modifier.height(8.dp))
+            SyncOptionDropdown(
+                selected = cfg.syncIntervalSec,
+                options = SYNC_INTERVAL_OPTIONS_SEC,
+                format = { "$it s" },
+                onSelect = { vm.setSyncIntervalSec(it) },
             )
         }
 
         SettingCard("Sync drift threshold") {
             Text(
-                "${cfg.syncDriftThresholdMs} ms",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
                 "Re-align receivers when any drifts above this.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Slider(
-                value = cfg.syncDriftThresholdMs.toFloat(),
-                onValueChange = { vm.setSyncDriftMs(it.roundToInt().coerceIn(StreamConfig.MIN_SYNC_DRIFT_MS, StreamConfig.MAX_SYNC_DRIFT_MS)) },
-                valueRange = StreamConfig.MIN_SYNC_DRIFT_MS.toFloat()..StreamConfig.MAX_SYNC_DRIFT_MS.toFloat(),
+            Spacer(Modifier.height(8.dp))
+            SyncOptionDropdown(
+                selected = cfg.syncDriftThresholdMs,
+                options = SYNC_DRIFT_OPTIONS_MS,
+                format = { "$it ms" },
+                onSelect = { vm.setSyncDriftMs(it) },
             )
         }
 
@@ -214,6 +219,49 @@ fun SettingsScreen(vm: CastViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+private val SYNC_INTERVAL_OPTIONS_SEC = listOf(5, 10, 15, 20, 25, 30, 45, 60, 120, 300)
+private val SYNC_DRIFT_OPTIONS_MS = listOf(15, 20, 25, 30, 45, 60, 90)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncOptionDropdown(
+    selected: Int,
+    options: List<Int>,
+    format: (Int) -> String,
+    onSelect: (Int) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = format(selected),
+            onValueChange = {},
+            readOnly = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { value ->
+                DropdownMenuItem(
+                    text = { Text(format(value)) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    },
+                )
+            }
         }
     }
 }
