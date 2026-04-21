@@ -4,6 +4,27 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1]
+
+### Added
+- Heartbeat liveness check. `CastSession` now tracks the timestamp
+  of the most recent receiver-originated heartbeat traffic
+  (PONG replies and receiver-initiated PINGs) and declares the
+  session dead after 15 s of silence. Catches TCP half-open states
+  where `send()` keeps succeeding but the Chromecast is gone —
+  previously the session would sit in CASTING forever.
+- "Paired devices" section in Settings. Lists every host with a
+  TOFU-pinned TLS fingerprint and exposes a Forget button per row
+  so a replaced or factory-reset Chromecast can be re-pinned on
+  the next successful handshake. `CastCertPinStore` grew
+  `pinnedHosts()` and `forget(host)` to back it.
+- Unit + Robolectric test suite. 51 tests covering the Cast V2
+  protobuf codec, JSON message builders, `StreamConfig` derived
+  fields, `HlsSegmenter` playlist format, `StreamConfigStore`
+  roundtrip (including the legacy `fine_volume_step` stripper),
+  and `CastCertPinStore` (pin / get / forget / `pinnedHosts`).
+  Runs via `./gradlew :app:testDebugUnitTest`.
+
 ## [0.5.0]
 
 ### Added
@@ -114,6 +135,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.5.1]: https://github.com/ddagunts/ScreenCast/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ddagunts/ScreenCast/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/ddagunts/ScreenCast/compare/v0.4.1...v0.4.3
 [0.4.1]: https://github.com/ddagunts/ScreenCast/compare/v0.4.0...v0.4.1

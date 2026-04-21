@@ -16,6 +16,18 @@ class CastCertPinStore(context: Context) {
         prefs.edit().putString(host, fingerprintHex).apply()
     }
 
+    // Every key in this prefs bundle is a pinned host. Keys is a defensive
+    // copy from SharedPreferences, safe to read without locking.
+    fun pinnedHosts(): Set<String> = prefs.all.keys.toSet()
+
+    // Clear the TOFU fingerprint so the next successful handshake to this
+    // host re-pins whatever cert it presents. Use after a legitimate swap
+    // (replaced device, factory reset) — mismatches during an adversarial
+    // swap are the reason the pin exists in the first place.
+    fun forget(host: String) {
+        prefs.edit().remove(host).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "cast_cert_pins"
     }

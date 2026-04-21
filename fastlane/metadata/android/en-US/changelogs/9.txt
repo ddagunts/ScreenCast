@@ -1,0 +1,3 @@
+• Heartbeat liveness: drop dead sessions instead of silently hanging
+• Forget a Chromecast's pinned cert from Settings → Paired devices
+• Unit + Robolectric test suite (51 tests)

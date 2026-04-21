@@ -61,6 +61,15 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
     private var sessionId: String? = null
     private var mediaSessionId: Int? = null
 
+    // Timestamp of the most recent receiver-originated traffic on the
+    // heartbeat namespace. Seeded at connect time; updated on every PONG
+    // reply and on every PING the receiver initiates (answering those
+    // proves the channel is alive in both directions). If this falls more
+    // than HEARTBEAT_TIMEOUT_MS behind we declare the session dead — TCP
+    // half-open states otherwise leave writes succeeding while the peer is
+    // gone, so we can't rely on send() to throw.
+    @Volatile private var lastHeartbeatMs: Long = 0L
+
     suspend fun startCast(appId: String, mediaUrl: String, contentType: String, autoplay: Boolean = true) {
         _state.value = CastState.Connecting(device)
         val s = CoroutineScope(Dispatchers.IO)
@@ -75,6 +84,7 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
             return
         }
         channel.send(connectMsg())
+        lastHeartbeatMs = System.currentTimeMillis()
         s.launch { heartbeatLoop() }
         s.launch { handleIncoming() }
 
@@ -169,7 +179,14 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
 
     private suspend fun heartbeatLoop() {
         while (true) {
-            delay(5000)
+            delay(HEARTBEAT_INTERVAL_MS)
+            val since = System.currentTimeMillis() - lastHeartbeatMs
+            if (since > HEARTBEAT_TIMEOUT_MS) {
+                logE("heartbeat: no PONG in ${since}ms, declaring receiver dead")
+                _state.value = CastState.Error("receiver heartbeat timeout")
+                close()
+                return
+            }
             runCatching { channel.send(pingMsg()) }.onFailure { return }
         }
     }
@@ -179,7 +196,16 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
             val obj = runCatching { JSONObject(msg.payloadUtf8) }.getOrNull() ?: return@collect
             val type = obj.optString("type")
             when {
-                msg.namespace == CastNs.HEARTBEAT && type == "PING" -> channel.send(pongMsg())
+                // Either direction counts as "receiver alive". Respond to
+                // receiver-initiated PINGs; just note the timestamp on PONGs
+                // we asked for.
+                msg.namespace == CastNs.HEARTBEAT && type == "PING" -> {
+                    lastHeartbeatMs = System.currentTimeMillis()
+                    channel.send(pongMsg())
+                }
+                msg.namespace == CastNs.HEARTBEAT && type == "PONG" -> {
+                    lastHeartbeatMs = System.currentTimeMillis()
+                }
                 msg.namespace == CastNs.RECEIVER && type == "RECEIVER_STATUS" -> parseReceiverStatus(obj)
                 msg.namespace == CastNs.MEDIA && type == "MEDIA_STATUS" -> parseMediaStatus(obj)
                 msg.namespace == CastNs.MEDIA && type == "LOAD_FAILED" -> {
@@ -192,6 +218,14 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
                 }
             }
         }
+    }
+
+    companion object {
+        private const val HEARTBEAT_INTERVAL_MS = 5_000L
+        // 3× interval — tolerates a single dropped PONG before bailing. Any
+        // lower and the sync-maintain pause/seek/play dance (which briefly
+        // stalls media traffic) can stumble into a false positive.
+        private const val HEARTBEAT_TIMEOUT_MS = 15_000L
     }
 
     private fun parseReceiverStatus(obj: JSONObject) {

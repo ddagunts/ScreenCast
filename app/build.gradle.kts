@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.ddagunts.screencast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.5.0"
+        versionCode = 9
+        versionName = "0.5.1"
     }
 
     signingConfigs {
@@ -81,6 +81,12 @@ android {
             "META-INF/io.netty.versions.properties",
         )
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 kotlin {
@@ -113,4 +119,9 @@ dependencies {
     // framework logs are needed: org.slf4j:slf4j-jdk14:2.0.x
 
     debugImplementation(libs.compose.ui.tooling)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.org.json)
 }
