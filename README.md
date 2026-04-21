@@ -19,13 +19,11 @@ An open-source Android app that casts the phone's screen to one or more Chromeca
 - **Multi-device casting**: Up to 4 Chromecasts can subscribe to the same HLS stream in parallel. Each has its own Cast V2 session, transport controls, and volume. The capture pipeline is started once on the first device and reused for the rest, so adding a second receiver doesn't retrigger the MediaProjection consent dialog.
 - **Sync across receivers**: HLS LIVE doesn't give receivers a shared clock, so by default each one picks its own live-edge and they drift. With **Sync start** enabled (Settings), the app coordinates a pause → seek → play handshake whenever a new device joins so every receiver lands on the same stream offset. A background loop then re-aligns every ~15 s: it polls `currentTime` on every session, pauses them all, seeks to the laggard's offset, and plays them back in parallel. This is best-effort — receiver-local offsets are only comparable while sessions stay connected.
 
-> **Don't tighten CORS on the HTTP server.** `HttpStreamServer.kt` sets `anyHost()` on purpose: the hls.js player inside the Default Media Receiver fetches from a `google.com` origin we can't hardcode, and the URL-path token is the real authentication gate. Narrowing CORS will silently break playback.
 
 ## Requirements
 
 - Android 8.0+ (API 26).
 - A Chromecast on the same Wi-Fi network.
-- No Google account or Cast SDK needed.
 
 ## Build
 

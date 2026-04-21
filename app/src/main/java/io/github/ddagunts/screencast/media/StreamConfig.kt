@@ -14,8 +14,8 @@ data class StreamConfig(
     val liveEdgeFactor: Double = 1.5,
     val resolution: Resolution = Resolution.P720,
     val syncStart: Boolean = true,
-    val syncIntervalSec: Int = 30,
-    val syncDriftThresholdMs: Int = 20,
+    val syncIntervalSec: Int = 10,
+    val syncDriftThresholdMs: Int = 30,
 ) {
     val keyframeIntervalSec: Int get() = ceil(segmentDurationSec).toInt().coerceAtLeast(1)
     val seedSegmentCount: Int get() = minOf(3, windowSize)

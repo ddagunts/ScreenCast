@@ -1,0 +1,2 @@
+• Sync check interval default: 10 s
+• Sync drift threshold default: 30 ms
