@@ -4,6 +4,19 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2]
+
+### Fixed
+- HTTP server binding to the wrong interface when a VPN is active.
+  Some VPN clients (e.g. Rethink/bravedns) publish a dual-transport
+  network with `Transports: WIFI|VPN` whose first IPv4 LinkAddress
+  is the tunnel endpoint (10.x). `NetworkUtils.getWifiIpAddress`
+  filtered only by `TRANSPORT_WIFI`, so we'd bind the Ktor server
+  to the VPN IP and tell the Chromecast to fetch from an address it
+  couldn't route to — casting would LAUNCH but never LOAD. Fix:
+  also require `NET_CAPABILITY_NOT_VPN`, which excludes those mirror
+  networks and lands us on the real wlan0.
+
 ## [0.5.1]
 
 ### Added
@@ -135,6 +148,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.5.2]: https://github.com/ddagunts/ScreenCast/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ddagunts/ScreenCast/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ddagunts/ScreenCast/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/ddagunts/ScreenCast/compare/v0.4.1...v0.4.3

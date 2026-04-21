@@ -1,0 +1,3 @@
+• Fix: HTTP server binding to the VPN tunnel IP when a VPN is active,
+  causing casts to stall after LAUNCH. The wlan0 address is now
+  selected even when the VPN advertises WIFI transport.
