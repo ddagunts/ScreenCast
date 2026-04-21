@@ -2,23 +2,26 @@ package io.github.ddagunts.screencast.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.ddagunts.screencast.CastForegroundService
 import io.github.ddagunts.screencast.media.Resolution
 import io.github.ddagunts.screencast.media.StreamConfig
 import kotlin.math.roundToInt
@@ -26,8 +29,11 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(vm: CastViewModel) {
     val cfg by vm.streamConfig.collectAsStateWithLifecycle()
-    val phase by vm.phase.collectAsStateWithLifecycle()
-    val live = phase !is CastForegroundService.Phase.Idle
+    val activeCasts by vm.activeCasts.collectAsStateWithLifecycle()
+    // Stream config is shared across every active session, so we can only
+    // edit it when *no* casts are live. A change mid-cast would invalidate
+    // the running encoder's segmenter settings for all receivers at once.
+    val live = activeCasts.isNotEmpty()
 
     Column(
         Modifier
@@ -91,6 +97,66 @@ fun SettingsScreen(vm: CastViewModel) {
                 valueRange = StreamConfig.MIN_LIVE_EDGE.toFloat()..StreamConfig.MAX_LIVE_EDGE.toFloat(),
                 steps = 3,
                 enabled = !live,
+            )
+        }
+
+        SettingCard("Sync start") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Safe to toggle mid-cast — applies to the *next* device added.
+                // Live devices aren't rebalanced retroactively.
+                Switch(
+                    checked = cfg.syncStart,
+                    onCheckedChange = { vm.setSyncStart(it) },
+                )
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        if (cfg.syncStart) "On" else "Off",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Pause running casts while a new one loads, then start them together. Trims the worst of the startup skew.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        // Sync interval/drift are live-editable — they affect the already-
+        // running maintenance loop, so leaving these enabled during a cast
+        // is intentional.
+        SettingCard("Sync check interval") {
+            Text(
+                "${cfg.syncIntervalSec} s",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "How often to check receivers for drift.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = cfg.syncIntervalSec.toFloat(),
+                onValueChange = { vm.setSyncIntervalSec(it.roundToInt().coerceIn(StreamConfig.MIN_SYNC_INTERVAL_SEC, StreamConfig.MAX_SYNC_INTERVAL_SEC)) },
+                valueRange = StreamConfig.MIN_SYNC_INTERVAL_SEC.toFloat()..StreamConfig.MAX_SYNC_INTERVAL_SEC.toFloat(),
+            )
+        }
+
+        SettingCard("Sync drift threshold") {
+            Text(
+                "${cfg.syncDriftThresholdMs} ms",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Re-align receivers when any drifts above this.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = cfg.syncDriftThresholdMs.toFloat(),
+                onValueChange = { vm.setSyncDriftMs(it.roundToInt().coerceIn(StreamConfig.MIN_SYNC_DRIFT_MS, StreamConfig.MAX_SYNC_DRIFT_MS)) },
+                valueRange = StreamConfig.MIN_SYNC_DRIFT_MS.toFloat()..StreamConfig.MAX_SYNC_DRIFT_MS.toFloat(),
             )
         }
 

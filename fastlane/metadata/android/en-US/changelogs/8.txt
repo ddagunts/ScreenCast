@@ -1,0 +1,4 @@
+• Cast to up to 4 Chromecasts simultaneously from one phone
+• Sync start: coordinated pause/seek/play across receivers on join
+• Continuous drift correction with tunable interval and threshold
+• Per-receiver Fine volume toggle

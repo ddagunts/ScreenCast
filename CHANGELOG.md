@@ -4,6 +4,33 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0]
+
+### Added
+- Multi-device casting. Up to 4 Chromecasts can subscribe to the same
+  HLS stream in parallel; each receiver has its own Cast V2 session
+  with independent transport controls and volume. The capture
+  pipeline is started once on the first device and reused for the
+  rest, so adding a second receiver doesn't retrigger the
+  `MediaProjection` consent dialog. An explicit "Stop all" ends every
+  cast, and per-device Stop buttons leave the others running.
+- Cross-receiver sync. A new "Sync start" Settings toggle pauses any
+  running casts when a new device joins, waits for the new session to
+  reach ready state, coordinates a `SEEK` across all sessions to the
+  same offset (with `resumeState=PLAYBACK_PAUSE`), and then fires
+  `PLAY` on every receiver in parallel.
+- Continuous sync maintenance. While Sync start is enabled, a
+  background loop in `CastForegroundService` periodically polls each
+  receiver's `currentTime`, pauses every session, seeks them all to
+  the laggard's offset, and resumes playback in parallel. The check
+  interval (default 15 s) and drift threshold (default 15 ms) are
+  exposed as Settings sliders and can be tuned live via
+  `ACTION_UPDATE_SYNC_CONFIG` without ending the cast.
+- Per-receiver "Fine" volume toggle. The 1%-step fine adjustment used
+  to be a global preference; now each active device card has its own
+  toggle so you can fine-trim one receiver while leaving coarser
+  ±5% control on the others.
+
 ## [0.4.3]
 
 ### Added
@@ -87,6 +114,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.5.0]: https://github.com/ddagunts/ScreenCast/compare/v0.4.3...v0.5.0
 [0.4.3]: https://github.com/ddagunts/ScreenCast/compare/v0.4.1...v0.4.3
 [0.4.1]: https://github.com/ddagunts/ScreenCast/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ddagunts/ScreenCast/compare/v0.3...v0.4.0

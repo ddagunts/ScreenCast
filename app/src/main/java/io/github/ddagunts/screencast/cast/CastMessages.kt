@@ -45,7 +45,13 @@ fun getReceiverStatus(): Pair<CastMessage, Int> {
         """{"type":"GET_STATUS","requestId":$reqId}""") to reqId
 }
 
-fun mediaLoadMsg(transportId: String, sessionId: String, mediaUrl: String, contentType: String): Pair<CastMessage, Int> {
+fun mediaLoadMsg(
+    transportId: String,
+    sessionId: String,
+    mediaUrl: String,
+    contentType: String,
+    autoplay: Boolean = true,
+): Pair<CastMessage, Int> {
     val reqId = nextRequestId()
     val metadata = JSONObject()
         .put("metadataType", 0)
@@ -59,7 +65,7 @@ fun mediaLoadMsg(transportId: String, sessionId: String, mediaUrl: String, conte
         .put("type", "LOAD")
         .put("requestId", reqId)
         .put("sessionId", sessionId)
-        .put("autoplay", true)
+        .put("autoplay", autoplay)
         .put("currentTime", 0)
         .put("media", media)
         .toString()
@@ -81,6 +87,39 @@ fun mediaPauseMsg(transportId: String, mediaSessionId: Int): Pair<CastMessage, I
 
 fun mediaPlayMsg(transportId: String, mediaSessionId: Int): Pair<CastMessage, Int> =
     simpleMediaCmd(transportId, mediaSessionId, "PLAY")
+
+// GET_STATUS on the media namespace prompts the receiver to echo a fresh
+// MEDIA_STATUS with current currentTime and playerState. Cheap; used before
+// sync-align to make sure our per-session currentTime readings are live.
+fun mediaGetStatusMsg(transportId: String): Pair<CastMessage, Int> {
+    val reqId = nextRequestId()
+    val payload = JSONObject()
+        .put("type", "GET_STATUS")
+        .put("requestId", reqId)
+        .toString()
+    return CastMessage(SENDER_ID, transportId, CastNs.MEDIA, payload) to reqId
+}
+
+// SEEK jumps the receiver to an absolute currentTime. resumeState controls
+// post-seek playback: PLAYBACK_PAUSE (startup sync — hold until coordinated
+// PLAY), PLAYBACK_START (maintenance — keep playing), or empty to preserve
+// whatever state the receiver was in.
+fun mediaSeekMsg(
+    transportId: String,
+    mediaSessionId: Int,
+    seconds: Double,
+    resumeState: String = "PLAYBACK_PAUSE",
+): Pair<CastMessage, Int> {
+    val reqId = nextRequestId()
+    val payload = JSONObject()
+        .put("type", "SEEK")
+        .put("requestId", reqId)
+        .put("mediaSessionId", mediaSessionId)
+        .put("currentTime", seconds)
+        .apply { if (resumeState.isNotEmpty()) put("resumeState", resumeState) }
+        .toString()
+    return CastMessage(SENDER_ID, transportId, CastNs.MEDIA, payload) to reqId
+}
 
 private fun simpleMediaCmd(transportId: String, mediaSessionId: Int, type: String): Pair<CastMessage, Int> {
     val reqId = nextRequestId()

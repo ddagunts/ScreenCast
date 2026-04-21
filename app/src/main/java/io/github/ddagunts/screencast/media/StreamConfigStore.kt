@@ -13,17 +13,25 @@ class StreamConfigStore(context: Context) {
             liveEdgeFactor = prefs.getFloat(KEY_LIVE_EDGE, d.liveEdgeFactor.toFloat()).toDouble(),
             resolution = runCatching { Resolution.valueOf(prefs.getString(KEY_RESOLUTION, d.resolution.name) ?: "") }
                 .getOrDefault(d.resolution),
-            fineVolumeStep = prefs.getBoolean(KEY_FINE_VOLUME, d.fineVolumeStep),
+            syncStart = prefs.getBoolean(KEY_SYNC_START, d.syncStart),
+            syncIntervalSec = prefs.getInt(KEY_SYNC_INTERVAL, d.syncIntervalSec),
+            syncDriftThresholdMs = prefs.getInt(KEY_SYNC_DRIFT_MS, d.syncDriftThresholdMs),
         )
     }
 
     fun save(cfg: StreamConfig) {
+        // Also strips the legacy "fine_volume_step" key if it's present from a
+        // prior install where fine was a global preference — no reason to
+        // keep dead state in prefs.
         prefs.edit()
             .putFloat(KEY_SEGMENT, cfg.segmentDurationSec.toFloat())
             .putInt(KEY_WINDOW, cfg.windowSize)
             .putFloat(KEY_LIVE_EDGE, cfg.liveEdgeFactor.toFloat())
             .putString(KEY_RESOLUTION, cfg.resolution.name)
-            .putBoolean(KEY_FINE_VOLUME, cfg.fineVolumeStep)
+            .putBoolean(KEY_SYNC_START, cfg.syncStart)
+            .putInt(KEY_SYNC_INTERVAL, cfg.syncIntervalSec)
+            .putInt(KEY_SYNC_DRIFT_MS, cfg.syncDriftThresholdMs)
+            .remove("fine_volume_step")
             .apply()
     }
 
@@ -33,6 +41,8 @@ class StreamConfigStore(context: Context) {
         private const val KEY_WINDOW = "window_size"
         private const val KEY_LIVE_EDGE = "live_edge_factor"
         private const val KEY_RESOLUTION = "resolution"
-        private const val KEY_FINE_VOLUME = "fine_volume_step"
+        private const val KEY_SYNC_START = "sync_start"
+        private const val KEY_SYNC_INTERVAL = "sync_interval_sec"
+        private const val KEY_SYNC_DRIFT_MS = "sync_drift_ms"
     }
 }

@@ -46,13 +46,22 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
     private val _volume = MutableStateFlow(CastVolume())
     val volume: StateFlow<CastVolume> = _volume
 
+    // Current playback position as reported by the receiver's latest
+    // MEDIA_STATUS. Units are seconds; for HLS LIVE without PDT these are
+    // receiver-local offsets from the first manifest fetch — comparable
+    // across status updates for the same receiver, *not necessarily* across
+    // different receivers. Used by the sync-align flow with a GET_STATUS
+    // refresh immediately before reading.
+    private val _currentTime = MutableStateFlow(0.0)
+    val currentTime: StateFlow<Double> = _currentTime
+
     private var scope: CoroutineScope? = null
     private var readerJob: Job? = null
     private var transportId: String? = null
     private var sessionId: String? = null
     private var mediaSessionId: Int? = null
 
-    suspend fun startCast(appId: String, mediaUrl: String, contentType: String) {
+    suspend fun startCast(appId: String, mediaUrl: String, contentType: String, autoplay: Boolean = true) {
         _state.value = CastState.Connecting(device)
         val s = CoroutineScope(Dispatchers.IO)
         scope = s
@@ -87,9 +96,9 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
         }
 
         channel.send(CastMessage(SENDER_ID, tid, CastNs.CONNECTION, """{"type":"CONNECT"}"""))
-        val (load, loadReqId) = mediaLoadMsg(tid, sid, mediaUrl, contentType)
+        val (load, loadReqId) = mediaLoadMsg(tid, sid, mediaUrl, contentType, autoplay)
         channel.send(load)
-        logI("LOAD sent (requestId=$loadReqId, url=$mediaUrl)")
+        logI("LOAD sent (requestId=$loadReqId, url=$mediaUrl, autoplay=$autoplay)")
         _state.value = CastState.Casting(device)
     }
 
@@ -129,6 +138,26 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
 
     suspend fun setMute(muted: Boolean) {
         channel.send(setMuteMsg(muted).first)
+    }
+
+    // Seek the receiver to `seconds`. resumeState is forwarded to the Cast
+    // media namespace: PLAYBACK_PAUSE (default) lands paused at the new
+    // offset, PLAYBACK_START keeps playback rolling — the latter is what
+    // steady-state drift correction needs. Returns immediately after the
+    // write; the receiver echoes MEDIA_STATUS when the seek completes.
+    suspend fun seek(seconds: Double, resumeState: String = "PLAYBACK_PAUSE") {
+        val tid = transportId ?: return logW("seek: no transportId yet")
+        val mid = mediaSessionId ?: return logW("seek: no mediaSessionId yet")
+        channel.send(mediaSeekMsg(tid, mid, seconds, resumeState).first)
+    }
+
+    // Prompt the receiver to emit a fresh MEDIA_STATUS so `_currentTime` is
+    // up-to-date. Receivers push MEDIA_STATUS on state changes but not
+    // continuously; without this nudge the last-seen currentTime can be
+    // several seconds stale.
+    suspend fun requestStatus() {
+        val tid = transportId ?: return logW("requestStatus: no transportId yet")
+        channel.send(mediaGetStatusMsg(tid).first)
     }
 
     fun close() {
@@ -193,6 +222,7 @@ class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
         if (msid > 0) mediaSessionId = msid
         val ps = s.optString("playerState")
         if (ps.isNotEmpty()) _playerState.value = ps
-        logI("media status: playerState=$ps mediaSessionId=$msid")
+        if (s.has("currentTime")) _currentTime.value = s.optDouble("currentTime", _currentTime.value)
+        logI("media status: playerState=$ps mediaSessionId=$msid currentTime=${"%.3f".format(_currentTime.value)}")
     }
 }
