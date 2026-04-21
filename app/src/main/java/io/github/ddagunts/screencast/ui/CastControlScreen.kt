@@ -68,6 +68,7 @@ fun CastControlScreen(vm: CastViewModel) {
     val devices by vm.devices.collectAsStateWithLifecycle()
     val playerState by vm.playerState.collectAsStateWithLifecycle()
     val volume by vm.volume.collectAsStateWithLifecycle()
+    val cfg by vm.streamConfig.collectAsStateWithLifecycle()
     val idle = phase is CastForegroundService.Phase.Idle
 
     Column(
@@ -81,7 +82,13 @@ fun CastControlScreen(vm: CastViewModel) {
             onPause = { vm.pause() },
             onPlay = { vm.play() },
         )
-        if (!idle) VolumeCard(volume, onLevel = { vm.setVolume(it) }, onMute = { vm.setMute(it) })
+        if (!idle) VolumeCard(
+            volume = volume,
+            fineStep = cfg.fineVolumeStep,
+            onLevel = { vm.setVolume(it) },
+            onMute = { vm.setMute(it) },
+            onFineStepChange = { vm.setFineVolumeStep(it) },
+        )
         DeviceList(devices, idle, onPick = { vm.startCast(it) })
     }
 }
@@ -197,13 +204,23 @@ private fun StatusDot(color: Color) {
     Box(Modifier.size(10.dp).background(color, CircleShape))
 }
 
-// 5% per tap matches the default Chromecast step; the receiver clamps anyway
-// via setVolumeMsg's coerceIn(0,1), so crossing the edges is safe.
-private const val VOLUME_STEP = 0.05
+// Coarse matches the default Chromecast step; fine is one percentage point at
+// a time for people who want to nudge past the receiver's quantization. The
+// receiver clamps to [0,1] via setVolumeMsg's coerceIn, so crossing the edges
+// is safe.
+private const val VOLUME_STEP_COARSE = 0.05
+private const val VOLUME_STEP_FINE = 0.01
 
 @Composable
-private fun VolumeCard(volume: CastVolume, onLevel: (Double) -> Unit, onMute: (Boolean) -> Unit) {
+private fun VolumeCard(
+    volume: CastVolume,
+    fineStep: Boolean,
+    onLevel: (Double) -> Unit,
+    onMute: (Boolean) -> Unit,
+    onFineStepChange: (Boolean) -> Unit,
+) {
     val enabled = !volume.isFixed
+    val step = if (fineStep) VOLUME_STEP_FINE else VOLUME_STEP_COARSE
     val levelPct = (volume.level * 100).toInt()
 
     Card(Modifier.fillMaxWidth()) {
@@ -218,7 +235,7 @@ private fun VolumeCard(volume: CastVolume, onLevel: (Double) -> Unit, onMute: (B
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FilledTonalIconButton(
-                    onClick = { onLevel(volume.level - VOLUME_STEP) },
+                    onClick = { onLevel(volume.level - step) },
                     enabled = enabled && !volume.muted && volume.level > 0.0,
                 ) {
                     Icon(Icons.Filled.Remove, contentDescription = "Volume down")
@@ -229,7 +246,7 @@ private fun VolumeCard(volume: CastVolume, onLevel: (Double) -> Unit, onMute: (B
                     modifier = Modifier.weight(1f),
                 )
                 FilledTonalIconButton(
-                    onClick = { onLevel(volume.level + VOLUME_STEP) },
+                    onClick = { onLevel(volume.level + step) },
                     enabled = enabled && !volume.muted && volume.level < 1.0,
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = "Volume up")
@@ -241,19 +258,30 @@ private fun VolumeCard(volume: CastVolume, onLevel: (Double) -> Unit, onMute: (B
                     onCheckedChange = onMute,
                     enabled = enabled,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     if (volume.muted) "Muted" else "Mute",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                if (volume.isFixed) {
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "Receiver volume is fixed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = fineStep,
+                    onCheckedChange = onFineStepChange,
+                    enabled = enabled,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Fine",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (volume.isFixed) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Receiver volume is fixed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

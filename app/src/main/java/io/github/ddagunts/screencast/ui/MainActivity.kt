@@ -2,6 +2,7 @@ package io.github.ddagunts.screencast.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -35,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 
@@ -77,11 +79,12 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun ScreenCastTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
+    // LocalConfiguration (not ctx.resources.configuration) so recomposition
+    // fires when the user toggles dark mode without restarting the Activity.
+    val uiMode = LocalConfiguration.current.uiMode
     val colors = when {
         Build.VERSION.SDK_INT >= 31 &&
-            ctx.resources.configuration.uiMode and
-            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-            android.content.res.Configuration.UI_MODE_NIGHT_NO ->
+            uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_NO ->
                 dynamicLightColorScheme(ctx)
         Build.VERSION.SDK_INT >= 31 -> dynamicDarkColorScheme(ctx)
         else -> darkColorScheme()

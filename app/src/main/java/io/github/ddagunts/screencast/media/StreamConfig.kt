@@ -13,6 +13,7 @@ data class StreamConfig(
     val windowSize: Int = 6,
     val liveEdgeFactor: Double = 1.5,
     val resolution: Resolution = Resolution.P720,
+    val fineVolumeStep: Boolean = false,
 ) {
     val keyframeIntervalSec: Int get() = ceil(segmentDurationSec).toInt().coerceAtLeast(1)
     val seedSegmentCount: Int get() = minOf(3, windowSize)

@@ -11,6 +11,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import io.github.ddagunts.screencast.cast.CastCertPinStore
@@ -58,6 +59,7 @@ class CastForegroundService : Service() {
     private var device: CastDevice? = null
     private var config: StreamConfig = StreamConfig()
     private var projection: MediaProjection? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var deviceName: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -153,6 +155,31 @@ class CastForegroundService : Service() {
         nm.notify(NOTIFICATION_ID, buildNotification(deviceName, _playerState.value))
     }
 
+    // There is no non-deprecated replacement for "keep screen on from a Service"
+    // — Window.FLAG_KEEP_SCREEN_ON needs a foreground Activity, and our user
+    // drops the app to home/lock so the *casted* content keeps rendering.
+    // SCREEN_DIM_WAKE_LOCK allows the user's brightness preference to be
+    // respected (unlike SCREEN_BRIGHT). The lock is tagged so `dumpsys power`
+    // reports it clearly during debugging.
+    @Suppress("DEPRECATION")
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE,
+            "screencast:cast-session",
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+            .onFailure { logW("release wakeLock: $it") }
+        wakeLock = null
+    }
+
     private fun startPipeline(resultCode: Int, resultData: Intent, dev: CastDevice) {
         val size = ScreenCapture.sizeFor(this, config.resolution)
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -176,6 +203,7 @@ class CastForegroundService : Service() {
             }
         }, null)
         projection = proj
+        acquireWakeLock()
 
         val seg = HlsSegmenter(
             targetDurationSec = config.segmentDurationSec,
@@ -256,6 +284,7 @@ class CastForegroundService : Service() {
         runCatching { audioEncoder?.stop() }.onFailure { logW("teardown audioEncoder: $it") }
         runCatching { server?.stop() }.onFailure { logW("teardown server: $it") }
         runCatching { projection?.stop() }.onFailure { logW("teardown projection: $it") }
+        releaseWakeLock()
         session = null; capture = null; encoder = null; audioEncoder = null
         server = null; segmenter = null; projection = null
         deviceName = ""

@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Held by CastForegroundService while a cast is live so MediaProjection
+         keeps receiving frames if the user sets the phone down. Released on
+         teardown; screen resumes its normal sleep behavior. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Wi-Fi is the only sensible transport for Cast, but marking it required=false
          keeps the app installable on Wi-Fi-less emulators and dev devices. -->

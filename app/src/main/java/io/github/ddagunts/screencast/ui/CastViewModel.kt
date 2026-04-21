@@ -51,6 +51,7 @@ class CastViewModel(app: Application) : AndroidViewModel(app) {
     fun setWindowSize(n: Int) = updateConfig { it.copy(windowSize = n) }
     fun setLiveEdgeFactor(f: Double) = updateConfig { it.copy(liveEdgeFactor = f) }
     fun setResolution(r: Resolution) = updateConfig { it.copy(resolution = r) }
+    fun setFineVolumeStep(fine: Boolean) = updateConfig { it.copy(fineVolumeStep = fine) }
 
     fun startCast(device: CastDevice) {
         val ctx = getApplication<Application>()

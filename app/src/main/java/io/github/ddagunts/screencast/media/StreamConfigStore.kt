@@ -13,6 +13,7 @@ class StreamConfigStore(context: Context) {
             liveEdgeFactor = prefs.getFloat(KEY_LIVE_EDGE, d.liveEdgeFactor.toFloat()).toDouble(),
             resolution = runCatching { Resolution.valueOf(prefs.getString(KEY_RESOLUTION, d.resolution.name) ?: "") }
                 .getOrDefault(d.resolution),
+            fineVolumeStep = prefs.getBoolean(KEY_FINE_VOLUME, d.fineVolumeStep),
         )
     }
 
@@ -22,6 +23,7 @@ class StreamConfigStore(context: Context) {
             .putInt(KEY_WINDOW, cfg.windowSize)
             .putFloat(KEY_LIVE_EDGE, cfg.liveEdgeFactor.toFloat())
             .putString(KEY_RESOLUTION, cfg.resolution.name)
+            .putBoolean(KEY_FINE_VOLUME, cfg.fineVolumeStep)
             .apply()
     }
 
@@ -31,5 +33,6 @@ class StreamConfigStore(context: Context) {
         private const val KEY_WINDOW = "window_size"
         private const val KEY_LIVE_EDGE = "live_edge_factor"
         private const val KEY_RESOLUTION = "resolution"
+        private const val KEY_FINE_VOLUME = "fine_volume_step"
     }
 }
