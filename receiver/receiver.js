@@ -124,11 +124,15 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
   if (!msg || typeof msg !== 'object') return;
   try {
     if (msg.type === 'OFFER') {
-      setStatus('Negotiating…');
+      setStatus('OFFER received, setting remote…');
       await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+      setStatus('remote set, creating answer…');
       const answer = await pc.createAnswer();
+      setStatus('answer created, setting local…');
       await pc.setLocalDescription(answer);
+      setStatus('answer set, sending…');
       sendSignal({ type: 'ANSWER', sdp: answer.sdp });
+      setStatus('ANSWER sent, awaiting media');
     } else if (msg.type === 'ICE' && msg.candidate) {
       // Trickle candidates — empty candidate string signals end-of-gather
       // from the sender. Safe to pass through addIceCandidate; Chrome ignores
@@ -147,7 +151,14 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
       try { pc.close(); } catch (_) {}
     }
   } catch (err) {
+    // Surface the failure on-screen. The try/catch used to only log to console,
+    // which is invisible on the Chromecast without remote DevTools. When
+    // setRemoteDescription or createAnswer throws, the TV now tells us which
+    // step failed so we can diagnose from the couch.
     console.error('signal handler', msg && msg.type, err);
+    const name = err && (err.name || 'Error');
+    const message = err && (err.message || String(err));
+    setStatus(`signal ${msg.type} failed: ${name}: ${message}`);
   }
 });
 

@@ -1,0 +1,4 @@
+• Receiver-only diagnostics for the
+  WebRTC audio-negotiation regression.
+  No Android-side behavior changes from
+  0.7.1.

@@ -4,6 +4,19 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2]
+
+### Changed
+- WebRTC receiver: signal-handler try/catch now surfaces failures onto the
+  on-screen `#status` element instead of only logging to the (invisible)
+  Chromecast Chrome console. When `setRemoteDescription` /
+  `createAnswer` / `setLocalDescription` / `sendSignal` throws, the TV
+  shows `signal OFFER failed: <ErrorName>: <message>`. Also replaced the
+  single `Negotiating…` status with per-step breadcrumbs so we can see
+  which WebRTC call stalls. No Android APK changes — diagnostic
+  scaffolding for an audio-ANSWER regression seen in 0.7.1.
+
+
 ## [0.7.1]
 
 ### Fixed
@@ -237,6 +250,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.7.2]: https://github.com/ddagunts/ScreenCast/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/ddagunts/ScreenCast/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ddagunts/ScreenCast/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/ddagunts/ScreenCast/compare/v0.6.0...v0.6.1
