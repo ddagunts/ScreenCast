@@ -4,6 +4,20 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1]
+
+### Changed
+- WebRTC receiver: added on-screen breadcrumbs through CAF initialization and
+  global `window.error` / `unhandledrejection` handlers that surface any JS
+  failure directly onto the status bar. Intended as diagnostic scaffolding
+  for the `CAST_INIT_TIMEOUT` issue where the receiver page loads but the
+  Cast platform never completes its handshake with CAF. `index.html`'s
+  default status text is now distinct from the "live" text so a stuck
+  HTML-only render is visible at a glance. Also swapped
+  `options.customNamespaces = Object.create(null)` for a regular `{}` —
+  some CAF code paths expect `Object.prototype` methods on that map.
+
+
 ## [0.6.0]
 
 ### Added
@@ -185,6 +199,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.6.1]: https://github.com/ddagunts/ScreenCast/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ddagunts/ScreenCast/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/ddagunts/ScreenCast/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/ddagunts/ScreenCast/compare/v0.5.2...v0.5.3

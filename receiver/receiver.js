@@ -17,7 +17,32 @@ function hideStatus() {
   statusEl.classList.add('hidden');
 }
 
+// Surface any sync JS error and any unhandled promise rejection onto the
+// #status element — that's the only feedback channel the TV screen gives us
+// without remote debugging. The marker "JS:" distinguishes this from the
+// static HTML default text, proving our script actually ran.
+window.addEventListener('error', (evt) => {
+  setStatus(`JS: ${evt.message} @ ${(evt.filename || '').split('/').pop()}:${evt.lineno}`);
+});
+window.addEventListener('unhandledrejection', (evt) => {
+  const r = evt.reason;
+  setStatus(`JS promise: ${r && (r.message || r.toString ? r.toString() : r)}`);
+});
+
+// Prove the script loaded at all; CAF init happens right after.
+setStatus('receiver.js loaded, starting CAF…');
+
+if (!window.cast || !cast.framework) {
+  setStatus('JS: cast.framework missing — CAF SDK did not load');
+  throw new Error('cast.framework missing');
+}
+
 const context = cast.framework.CastReceiverContext.getInstance();
+// Route CAF's internal logs to the browser console. If remote debugging is
+// ever enabled on the Chromecast, they'll show up in DevTools.
+if (cast.framework.LoggerLevel) {
+  context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
+}
 const options = new cast.framework.CastReceiverOptions();
 // We don't use the CAF media pipeline at all — the sender never sends LOAD,
 // so we disable the idle-timeout auto-shutdown. maxInactivity is in seconds;
@@ -25,7 +50,9 @@ const options = new cast.framework.CastReceiverOptions();
 options.maxInactivity = 24 * 60 * 60;
 // Register our custom namespace. CAF refuses sendCustomMessage calls on a
 // namespace it doesn't know about, so this has to come before start().
-options.customNamespaces = Object.create(null);
+// Regular `{}` (not Object.create(null)) — some CAF code paths call
+// prototype methods on this map.
+options.customNamespaces = {};
 options.customNamespaces[NAMESPACE] =
   cast.framework.system.MessageType.JSON;
 
@@ -113,8 +140,15 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
   }
 });
 
-context.start(options);
-setStatus('Waiting for sender…');
+setStatus('calling context.start()…');
+try {
+  context.start(options);
+} catch (e) {
+  setStatus(`start() threw: ${e && (e.message || e)}`);
+  throw e;
+}
+// "CAF ready" marker distinguishes live JS from the static HTML default.
+setStatus('CAF ready — waiting for sender');
 // Announce readiness — the sender treats this as a hint but doesn't block
 // on it (the OFFER is sent regardless after LAUNCH completes).
 sendSignal({ type: 'READY' });

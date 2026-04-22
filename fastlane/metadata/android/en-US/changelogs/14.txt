@@ -1,0 +1,4 @@
+• WebRTC receiver: diagnostic breadcrumbs
+  and on-screen error surface for the
+  CAST_INIT_TIMEOUT issue. No sender-side
+  behavior changes.
