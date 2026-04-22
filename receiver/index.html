@@ -21,7 +21,13 @@
   </style>
 </head>
 <body>
-  <video id="video" autoplay playsinline muted></video>
+  <!-- No `muted` attribute: Chromecast's CAF receiver is a trusted context
+       that permits unmuted autoplay. Starting muted would trap us — Chrome's
+       autoplay policy often silently reverts a post-load `video.muted=false`
+       back to true, which is why earlier test casts played video but no
+       audio even though the stream carried both tracks. The ontrack handler
+       still has a muted-fallback for browsers that reject unmuted play. -->
+  <video id="video" autoplay playsinline></video>
   <div id="status">HTML loaded — waiting for receiver.js…</div>
   <!-- CAF Receiver framework: the only way to subscribe to a custom Cast
        namespace from inside the receiver's Chrome instance. Loaded from

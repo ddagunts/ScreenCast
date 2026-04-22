@@ -28,6 +28,14 @@ class WebRtcAudioCapture : JavaAudioDeviceModule.AudioBufferCallback {
 
     @Volatile private var audioRecord: AudioRecord? = null
 
+    // Diagnostics: the AudioBufferCallback semantics vary across libwebrtc
+    // forks (observation-only in some, buffer-supply in others). Log call
+    // rate + sample signature every ~2 s so we can verify (a) the callback
+    // fires, and (b) our write actually lands in the buffer rather than
+    // getting overwritten downstream by libwebrtc's internal mic AudioRecord.
+    private var callbackCount = 0L
+    private var lastLogNs = 0L
+
     @SuppressLint("MissingPermission")
     fun attachProjection(projection: MediaProjection) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -85,16 +93,41 @@ class WebRtcAudioCapture : JavaAudioDeviceModule.AudioBufferCallback {
     ): Long {
         val rec = audioRecord
         val pos = buffer.position()
+        val preSig = sampleSig(buffer, pos, bytesRead)
         if (rec == null) {
             zeroRange(buffer, pos, bytesRead)
+            logRate(preSig, 0L, 0)
             return 0L
         }
         val n = try {
             rec.read(buffer, bytesRead, AudioRecord.READ_BLOCKING)
         } catch (_: Throwable) { -1 }
         if (n < bytesRead) zeroTail(buffer, pos, bytesRead, if (n > 0) n else 0)
+        val postSig = sampleSig(buffer, pos, bytesRead)
         buffer.position(pos)
+        logRate(preSig, postSig, n)
         return 0L
+    }
+
+    // Non-zero sum over ~32 bytes at buffer[pos]; hex-signature lets us tell at
+    // a glance whether the bytes changed (our write landed) or didn't (stale
+    // mic data / our write got overwritten).
+    private fun sampleSig(buffer: ByteBuffer, pos: Int, bytesRead: Int): Long {
+        val n = minOf(32, bytesRead, buffer.limit() - pos)
+        var sum = 0L
+        for (i in 0 until n) sum = (sum shl 3) xor (buffer.get(pos + i).toLong() and 0xFF)
+        return sum
+    }
+
+    private fun logRate(preSig: Long, postSig: Long, read: Int) {
+        callbackCount++
+        val now = System.nanoTime()
+        if (now - lastLogNs > 2_000_000_000L) {
+            lastLogNs = now
+            logI(
+                "onBuffer: calls=$callbackCount read=$read preSig=${preSig.toString(16)} postSig=${postSig.toString(16)}"
+            )
+        }
     }
 
     private fun zeroRange(buffer: ByteBuffer, from: Int, length: Int) {

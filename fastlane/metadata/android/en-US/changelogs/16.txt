@@ -1,0 +1,4 @@
+• WebRTC audio now plays on the
+  Chromecast. Receiver-side HTML
+  change; the 0.7.0 Android build
+  was already sending audio correctly.

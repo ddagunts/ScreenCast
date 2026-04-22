@@ -4,6 +4,23 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1]
+
+### Fixed
+- WebRTC mode: audio reaches the Chromecast correctly now. In 0.7.0 the
+  receiver `<video>` element carried the HTML `muted` attribute; Chrome's
+  autoplay policy committed to the muted state on load and silently
+  reverted our later `video.muted = false`. Sender-side audio was fine
+  all along. Dropping the attribute lets CAF's trusted receiver context
+  autoplay unmuted.
+
+### Changed
+- WebRTC mode: rate-limited diagnostic log in `WebRtcAudioCapture.onBuffer`
+  (every ~2 s) reporting callback rate and sample-signatures before/after
+  our write. Confirms the audio pipeline is flowing and provides a quick
+  signal if playback capture ever stalls.
+
+
 ## [0.7.0]
 
 ### Added
@@ -220,6 +237,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.7.1]: https://github.com/ddagunts/ScreenCast/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ddagunts/ScreenCast/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/ddagunts/ScreenCast/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ddagunts/ScreenCast/compare/v0.5.4...v0.6.0
