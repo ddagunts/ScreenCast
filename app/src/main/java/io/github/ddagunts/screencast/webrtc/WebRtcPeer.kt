@@ -9,6 +9,8 @@ import io.github.ddagunts.screencast.util.logW
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -18,6 +20,7 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
 import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SdpObserver
@@ -25,6 +28,7 @@ import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.audio.JavaAudioDeviceModule
 
 // One-shot wrapper around libwebrtc's PeerConnectionFactory + PeerConnection.
 // Lifecycle mirrors the cast session: build() once, addScreenSource() once,
@@ -45,6 +49,10 @@ class WebRtcPeer(
     private var videoTrack: VideoTrack? = null
     private var capturer: ScreenCapturerAndroid? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
+    private var audioModule: JavaAudioDeviceModule? = null
+    private var audioCapture: WebRtcAudioCapture? = null
+    private var audioSource: AudioSource? = null
+    private var audioTrack: AudioTrack? = null
 
     private val _connectionState = MutableStateFlow(PeerConnection.PeerConnectionState.NEW)
     val connectionState: StateFlow<PeerConnection.PeerConnectionState> = _connectionState
@@ -63,7 +71,22 @@ class WebRtcPeer(
                 factoryInitialized = true
             }
         }
+        // JavaAudioDeviceModule with an AudioBufferCallback is how we inject
+        // MediaProjection-captured PCM into libwebrtc's audio pipeline. The
+        // module must exist at factory-creation time; the actual AudioRecord
+        // is attached later in addScreenSource() once MediaProjection is
+        // available. Until then, the callback streams silence.
+        val capture = WebRtcAudioCapture()
+        audioCapture = capture
+        val adm = JavaAudioDeviceModule.builder(context.applicationContext)
+            .setSampleRate(WEBRTC_AUDIO_SAMPLE_RATE)
+            .setUseStereoInput(WEBRTC_AUDIO_CHANNELS == 2)
+            .setAudioBufferCallback(capture)
+            .createAudioDeviceModule()
+        audioModule = adm
+
         factory = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(
                 DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
             )
@@ -121,7 +144,53 @@ class WebRtcPeer(
         // addTrack with an empty streamIds list emits an a=msid:- line; the
         // receiver page treats the incoming transceiver as its primary video
         // stream, so the streamId string itself is cosmetic.
-        pc.addTrack(track, listOf("screen-stream"))
+        val sender = pc.addTrack(track, listOf("screen-stream"))
+        configureVideoSender(sender)
+
+        // Audio track. ScreenCapturerAndroid owns the MediaProjection instance
+        // (obtained lazily inside startCapture); share it with AudioPlayback
+        // Capture so we don't need a second consent prompt. If the projection
+        // isn't exposed yet (older AAR), the audio callback keeps streaming
+        // silence — the stream still has an audio track, just empty.
+        val projection = cap.mediaProjection
+        if (projection != null) {
+            audioCapture?.attachProjection(projection)
+        } else {
+            logW("ScreenCapturerAndroid.getMediaProjection returned null — audio will be silent")
+        }
+        val aSource = f.createAudioSource(MediaConstraints())
+        audioSource = aSource
+        val aTrack = f.createAudioTrack("audio0", aSource)
+        audioTrack = aTrack
+        pc.addTrack(aTrack, listOf("screen-stream"))
+    }
+
+    // Override libwebrtc's conservative defaults for a LAN-only cast:
+    //  • maxBitrateBps — without this the BWE settles around 1–2 Mbps even on a
+    //    gigabit Wi-Fi. Giving it an explicit ceiling lets the encoder spend
+    //    the bandwidth we actually have.
+    //  • degradationPreference = MAINTAIN_RESOLUTION — BALANCED (the default)
+    //    will drop resolution under CPU pressure, which looks terrible for
+    //    screen content (text smears). We'd rather drop frames and keep
+    //    pixels sharp. Frame drops are far less noticeable on UI/video casts
+    //    than resolution shifts.
+    private fun configureVideoSender(sender: org.webrtc.RtpSender) {
+        val params = sender.parameters
+        if (params.encodings.isEmpty()) {
+            logW("configureVideoSender: no encodings on sender, skipping bitrate/degradation tuning")
+            return
+        }
+        params.encodings[0].maxBitrateBps = WEBRTC_MAX_BITRATE_BPS
+        params.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+        // setParameters() returns false when libwebrtc rejects the update
+        // (e.g. if a renegotiation clobbered it). Log it — the defaults will
+        // still work, just conservatively.
+        val applied = sender.setParameters(params)
+        if (applied) {
+            logI("video sender configured: maxBitrate=${WEBRTC_MAX_BITRATE_BPS / 1_000_000} Mbps, degradation=MAINTAIN_RESOLUTION")
+        } else {
+            logW("video sender.setParameters returned false — bitrate/degradation not applied")
+        }
     }
 
     suspend fun createOffer(): String {
@@ -173,12 +242,21 @@ class WebRtcPeer(
         runCatching { videoTrack?.dispose() }.onFailure { logW("close: videoTrack.dispose: $it") }
         runCatching { videoSource?.dispose() }.onFailure { logW("close: videoSource.dispose: $it") }
         runCatching { surfaceTextureHelper?.dispose() }.onFailure { logW("close: helper.dispose: $it") }
+        runCatching { audioTrack?.dispose() }.onFailure { logW("close: audioTrack.dispose: $it") }
+        runCatching { audioSource?.dispose() }.onFailure { logW("close: audioSource.dispose: $it") }
+        // audioCapture.release() stops the AudioRecord. Order matters: stop
+        // the AudioRecord before disposing audioModule, otherwise its
+        // callback thread can still be mid-read when the module goes away.
+        runCatching { audioCapture?.release() }.onFailure { logW("close: audioCapture.release: $it") }
+        runCatching { audioModule?.release() }.onFailure { logW("close: audioModule.release: $it") }
         runCatching { peer?.close() }.onFailure { logW("close: peer.close: $it") }
         runCatching { peer?.dispose() }.onFailure { logW("close: peer.dispose: $it") }
         runCatching { factory?.dispose() }.onFailure { logW("close: factory.dispose: $it") }
         runCatching { eglBase.release() }.onFailure { logW("close: eglBase.release: $it") }
         capturer = null; videoTrack = null; videoSource = null
         surfaceTextureHelper = null; peer = null; factory = null
+        audioTrack = null; audioSource = null
+        audioCapture = null; audioModule = null
     }
 
     private val observer = object : PeerConnection.Observer {

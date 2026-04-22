@@ -68,11 +68,22 @@ let senderId = null;
 const pc = new RTCPeerConnection({ iceServers: [] });
 
 pc.ontrack = (evt) => {
-  console.log('ontrack', evt.streams && evt.streams[0]);
+  console.log('ontrack', evt.track && evt.track.kind, evt.streams && evt.streams[0]);
   const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
   video.srcObject = stream;
+  // The element starts muted so autoplay is always permitted; unmute as soon
+  // as we're attached to a live stream so audio actually plays. Chromecast's
+  // CAF context allows unmuted playback — if play() is rejected we fall back
+  // to muted video only.
+  video.muted = false;
   const p = video.play();
-  if (p && typeof p.catch === 'function') p.catch(err => console.warn('video.play', err));
+  if (p && typeof p.catch === 'function') {
+    p.catch(err => {
+      console.warn('video.play unmuted failed, retrying muted', err);
+      video.muted = true;
+      video.play().catch(e => console.warn('video.play muted also failed', e));
+    });
+  }
   hideStatus();
 };
 

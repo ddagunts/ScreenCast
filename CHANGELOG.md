@@ -4,6 +4,27 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0]
+
+### Added
+- WebRTC mode: audio streaming. Captures device playback
+  (`USAGE_MEDIA` + `USAGE_GAME`) via the same `MediaProjection`
+  that drives video, so no second consent prompt. Fed into
+  libwebrtc through a `JavaAudioDeviceModule` with a custom
+  `AudioBufferCallback` that supplies 48 kHz stereo PCM on
+  demand. If `RECORD_AUDIO` isn't granted, the track stays
+  but plays silence. Receiver unmutes the `<video>` element
+  on incoming track; falls back to muted-only video if
+  autoplay-with-sound is blocked.
+
+### Changed
+- WebRTC mode: video bumped from 720p to 1080p, explicit
+  8 Mbps bitrate ceiling on the `RtpSender`, and
+  `degradationPreference = MAINTAIN_RESOLUTION` so CPU
+  pressure drops framerate instead of resolution (text and
+  UI stay sharp).
+
+
 ## [0.6.1]
 
 ### Changed
@@ -199,6 +220,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.7.0]: https://github.com/ddagunts/ScreenCast/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/ddagunts/ScreenCast/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/ddagunts/ScreenCast/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/ddagunts/ScreenCast/compare/v0.5.3...v0.5.4

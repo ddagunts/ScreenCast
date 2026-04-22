@@ -1,0 +1,6 @@
+• WebRTC mode: audio is now included.
+  Captures device playback via the same
+  projection as video — no second prompt.
+• WebRTC video bumped to 1080p at up to
+  8 Mbps; drops framerate not resolution
+  under CPU pressure.
