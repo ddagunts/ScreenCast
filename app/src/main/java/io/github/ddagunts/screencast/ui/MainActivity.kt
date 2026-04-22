@@ -43,6 +43,7 @@ import androidx.core.app.ActivityCompat
 class MainActivity : ComponentActivity() {
 
     private val vm: CastViewModel by viewModels()
+    private val webRtcVm: WebRtcViewModel by viewModels()
 
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
         requestPermissionsIfNeeded()
         setContent {
             ScreenCastTheme {
-                Surface(Modifier.fillMaxSize()) { AppScaffold(vm) }
+                Surface(Modifier.fillMaxSize()) { AppScaffold(vm, webRtcVm) }
             }
         }
     }
@@ -92,11 +93,11 @@ private fun ScreenCastTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, content = content)
 }
 
-private enum class Screen { Cast, Settings, Logs }
+private enum class Screen { Cast, Settings, Logs, WebRtc }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppScaffold(vm: CastViewModel) {
+private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
     var screen by rememberSaveable { mutableStateOf(Screen.Cast) }
     Scaffold(topBar = {
         TopAppBar(
@@ -105,6 +106,7 @@ private fun AppScaffold(vm: CastViewModel) {
                     Screen.Cast -> "ScreenCast"
                     Screen.Settings -> "Settings"
                     Screen.Logs -> "Logs"
+                    Screen.WebRtc -> "WebRTC"
                 })
             },
             navigationIcon = {
@@ -114,7 +116,13 @@ private fun AppScaffold(vm: CastViewModel) {
                     }
                 }
             },
-            actions = { if (screen == Screen.Cast) CastScreenActions(onOpenSettings = { screen = Screen.Settings }, onOpenLogs = { screen = Screen.Logs }) },
+            actions = {
+                if (screen == Screen.Cast) CastScreenActions(
+                    onOpenSettings = { screen = Screen.Settings },
+                    onOpenLogs = { screen = Screen.Logs },
+                    onOpenWebRtc = { screen = Screen.WebRtc },
+                )
+            },
         )
     }) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
@@ -122,13 +130,18 @@ private fun AppScaffold(vm: CastViewModel) {
                 Screen.Cast -> CastControlScreen(vm)
                 Screen.Settings -> SettingsScreen(vm)
                 Screen.Logs -> LogPanelScreen()
+                Screen.WebRtc -> WebRtcScreen(webRtcVm)
             }
         }
     }
 }
 
 @Composable
-private fun CastScreenActions(onOpenSettings: () -> Unit, onOpenLogs: () -> Unit) {
+private fun CastScreenActions(
+    onOpenSettings: () -> Unit,
+    onOpenLogs: () -> Unit,
+    onOpenWebRtc: () -> Unit,
+) {
     IconButton(onClick = onOpenSettings) {
         Icon(Icons.Filled.Settings, contentDescription = "Settings")
     }
@@ -140,6 +153,10 @@ private fun CastScreenActions(onOpenSettings: () -> Unit, onOpenLogs: () -> Unit
         DropdownMenuItem(
             text = { Text("Logs") },
             onClick = { menuOpen = false; onOpenLogs() },
+        )
+        DropdownMenuItem(
+            text = { Text("WebRTC") },
+            onClick = { menuOpen = false; onOpenWebRtc() },
         )
     }
 }

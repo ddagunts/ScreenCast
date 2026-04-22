@@ -44,8 +44,22 @@
             android:taskAffinity=""
             android:exported="false" />
 
+        <!-- WebRTC trampoline / service. Separate from the HLS path so the
+             two can't cross-wire via stray Intent extras. -->
+        <activity
+            android:name=".WebRtcProjectionRequestActivity"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <service
             android:name=".CastForegroundService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
+        <service
+            android:name=".WebRtcForegroundService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
     </application>

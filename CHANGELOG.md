@@ -4,6 +4,24 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0]
+
+### Added
+- WebRTC mode — low-latency (sub-second) screen mirroring alongside the
+  existing HLS path, reachable from the overflow menu on the Cast screen.
+  Uses a custom Cast receiver; ships with a default App ID (`9098830C`)
+  pointing at the project's hosted receiver, so it works with zero setup.
+  Users who prefer to host their own receiver can register a URL at
+  cast.google.com and paste the resulting 8-character App ID in the
+  WebRTC screen to override. Single Chromecast per WebRTC cast; no
+  pause/play/seek or volume controls (WebRTC has no media transport
+  concept).
+
+### Changed
+- Renamed "Phase 1 / Phase 2" terminology to "HLS mode / WebRTC mode"
+  across the README, receiver docs, UI labels, and code comments.
+
+
 ## [0.5.4]
 
 ### Changed
@@ -167,6 +185,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.6.0]: https://github.com/ddagunts/ScreenCast/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/ddagunts/ScreenCast/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/ddagunts/ScreenCast/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/ddagunts/ScreenCast/compare/v0.5.1...v0.5.2

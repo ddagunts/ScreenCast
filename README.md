@@ -20,6 +20,18 @@ An open-source Android app that casts the phone's screen to one or more Chromeca
 - **Sync across receivers**: HLS LIVE doesn't give receivers a shared clock, so by default each one picks its own live-edge and they drift. With **Sync start** enabled (Settings), the app coordinates a pause → seek → play handshake whenever a new device joins so every receiver lands on the same stream offset. A background loop then re-aligns every ~15 s: it polls `currentTime` on every session, pauses them all, seeks to the laggard's offset, and plays them back in parallel. This is best-effort — receiver-local offsets are only comparable while sessions stay connected.
 
 
+## WebRTC mode (low-latency) — optional
+
+The default cast path is HLS over HTTP; latency is ~5–10 s. A separate **WebRTC** mode ships alongside it for sub-second latency. It's reachable from the overflow menu on the Cast screen.
+
+WebRTC mode uses a **custom Cast receiver**. The app ships with a default App ID (`9098830C`) pointing at the project's hosted receiver, so it works out of the box. If you'd rather host your own receiver, register its URL at <https://cast.google.com/publish/> and paste the resulting 8-character App ID into the app's WebRTC screen. Static receiver page + instructions live in [`receiver/`](receiver/). When you start a cast the app launches the receiver, negotiates a `RTCPeerConnection` over the Cast channel, and streams the screen directly. No HLS server, no drift/sync coordination, no multi-device fan-out.
+
+Tradeoffs versus HLS mode:
+
+- One Chromecast per cast (no parallel receivers).
+- No pause/play/seek, no volume UI (WebRTC has no concept of media transport).
+- The WebRTC Android library is a pre-built open-source AAR from [webrtc-sdk/android](https://github.com/webrtc-sdk/android) (BSD-3). Adds ~18 MB of native code across 4 ABIs. Building it from Chromium source ourselves is listed as a future decision in `CLAUDE.md`.
+
 ## Requirements
 
 - Android 8.0+ (API 26).
@@ -60,9 +72,11 @@ Then `./gradlew assembleRelease`. Without credentials `assembleRelease` still ru
 ```
 app/src/main/java/io/github/ddagunts/screencast/
 ├── cast/     # Cast V2 protocol (discovery, TLS channel, session FSM)
-├── media/    # Screen capture, H.264 encode, HLS muxer, Ktor server
-├── ui/       # Jetpack Compose UI + ViewModel
+├── media/    # HLS mode: screen capture, H.264 encode, HLS muxer, Ktor server
+├── webrtc/   # WebRTC mode: PeerConnection, signaling over custom Cast namespace
+├── ui/       # Jetpack Compose UI + ViewModels (one per mode)
 └── util/     # Networking, logging
+receiver/     # WebRTC custom Cast receiver (static HTML/JS)
 ```
 
 ## License

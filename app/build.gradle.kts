@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.ddagunts.screencast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.5.4"
+        versionCode = 13
+        versionName = "0.6.0"
     }
 
     signingConfigs {
@@ -113,6 +113,12 @@ dependencies {
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.auto.head.response)
     implementation(libs.ktor.server.cors)
+
+    // WebRTC mode — isolated from the HLS path; only the webrtc/ package
+    // references org.webrtc.*. Adds ~18 MB of native code across 4 ABIs; R8
+    // cannot strip native libraries, so debug APKs carry the full payload
+    // and release APKs still ship every ABI unless the user builds split APKs.
+    implementation(libs.webrtc.sdk.android)
     // Ktor uses SLF4J internally. We don't ship a binding: Ktor 3 gracefully
     // falls back to its built-in no-op and Android's logcat carries our own
     // logI/logE from util.LogRepository. Uncomment and add to the catalog if

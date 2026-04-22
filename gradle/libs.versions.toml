@@ -6,6 +6,12 @@ activityCompose = "1.13.0"
 lifecycle = "2.10.0"
 coroutines = "1.10.2"
 ktor = "3.4.2"
+# Community-maintained open-source WebRTC build for Android. Published under
+# BSD-3 from Chromium source tarballs; the AAR bundles libjingle_peerconnection
+# natives for armeabi-v7a, arm64-v8a, x86, x86_64. This is the pragmatic stand-in
+# for "build libwebrtc from Chromium source ourselves" — swap for an in-tree
+# build later without touching any code that references org.webrtc.*.
+webrtcSdk = "125.6422.07"
 junit = "4.13.2"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
@@ -25,6 +31,7 @@ ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref =
 ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version.ref = "ktor" }
 ktor-server-auto-head-response = { group = "io.ktor", name = "ktor-server-auto-head-response", version.ref = "ktor" }
 ktor-server-cors = { group = "io.ktor", name = "ktor-server-cors", version.ref = "ktor" }
+webrtc-sdk-android = { group = "io.github.webrtc-sdk", name = "android", version.ref = "webrtcSdk" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }

@@ -1,0 +1,8 @@
+• New: WebRTC mode — sub-second latency
+  screen mirroring as an alternative to HLS.
+  Reachable from the overflow menu. Ships
+  with a default receiver App ID, so no
+  setup is required.
+• Single Chromecast per WebRTC cast; no
+  pause/play/volume controls (WebRTC has
+  no media transport concept).
