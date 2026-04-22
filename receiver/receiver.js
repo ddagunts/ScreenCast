@@ -71,20 +71,23 @@ pc.ontrack = (evt) => {
   console.log('ontrack', evt.track && evt.track.kind, evt.streams && evt.streams[0]);
   const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
   video.srcObject = stream;
-  // The element starts muted so autoplay is always permitted; unmute as soon
-  // as we're attached to a live stream so audio actually plays. Chromecast's
-  // CAF context allows unmuted playback — if play() is rejected we fall back
-  // to muted video only.
+  // Surface track arrival but DO NOT hideStatus() yet — ontrack fires right
+  // after setRemoteDescription succeeds (before createAnswer/setLocalDescription
+  // and long before ICE completes). Hiding here would mask any failure in the
+  // subsequent signaling steps. We hide only when onconnectionstatechange
+  // reports 'connected'.
+  setStatus(`track: ${evt.track && evt.track.kind || '?'}`);
+  // Trusted CAF context permits unmuted autoplay; fall back to muted if the
+  // browser rejects it. Surface unmuted failure to status so we can see it.
   video.muted = false;
   const p = video.play();
   if (p && typeof p.catch === 'function') {
     p.catch(err => {
-      console.warn('video.play unmuted failed, retrying muted', err);
+      setStatus(`play unmuted failed: ${err && err.name || err}; retrying muted`);
       video.muted = true;
-      video.play().catch(e => console.warn('video.play muted also failed', e));
+      video.play().catch(e => setStatus(`play muted also failed: ${e && e.name || e}`));
     });
   }
-  hideStatus();
 };
 
 pc.onicecandidate = (evt) => {
@@ -101,10 +104,15 @@ pc.onicecandidate = (evt) => {
 };
 
 pc.onconnectionstatechange = () => {
-  console.log('pc state', pc.connectionState);
-  if (pc.connectionState === 'connected') hideStatus();
-  else if (pc.connectionState === 'failed') setStatus('WebRTC connection failed');
-  else if (pc.connectionState === 'disconnected') setStatus('Sender disconnected');
+  const s = pc.connectionState;
+  console.log('pc state', s);
+  if (s === 'connected') hideStatus();
+  else if (s === 'failed') setStatus('WebRTC connection failed');
+  else if (s === 'disconnected') setStatus('Sender disconnected');
+  else setStatus(`pc state: ${s}`);
+};
+pc.oniceconnectionstatechange = () => {
+  setStatus(`ice: ${pc.iceConnectionState}`);
 };
 
 function sendSignal(obj) {
