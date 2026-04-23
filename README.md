@@ -5,9 +5,9 @@ An open-source Android app that casts the phone's screen to one or more Chromeca
 ## Screenshots
 
 <p>
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-cast-idle.png" width="240" alt="Device list after mDNS discovery" />
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-settings.png" width="240" alt="Stream tuning settings, including Sync start" />
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-cast-multi.png" width="240" alt="Three Chromecasts casting in parallel with per-device controls" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-cast-idle.png" width="240" alt="Main Cast screen with HLS/WebRTC mode toggle and discovered devices" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-settings.png" width="240" alt="Settings: resolution, segment duration, playlist window, live-edge target" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-webrtc-idle.png" width="240" alt="WebRTC mode — low-latency screen mirroring via a custom Cast receiver" />
 </p>
 
 ## How it works
