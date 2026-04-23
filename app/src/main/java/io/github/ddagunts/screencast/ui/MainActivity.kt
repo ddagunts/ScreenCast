@@ -12,6 +12,9 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -23,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -38,7 +44,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.ddagunts.screencast.CastMode
 
 class MainActivity : ComponentActivity() {
 
@@ -93,12 +102,13 @@ private fun ScreenCastTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, content = content)
 }
 
-private enum class Screen { Cast, Settings, Logs, WebRtc }
+private enum class Screen { Cast, Settings, Logs }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
     var screen by rememberSaveable { mutableStateOf(Screen.Cast) }
+    val castMode by vm.castMode.collectAsStateWithLifecycle()
     Scaffold(topBar = {
         TopAppBar(
             title = {
@@ -106,7 +116,6 @@ private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
                     Screen.Cast -> "ScreenCast"
                     Screen.Settings -> "Settings"
                     Screen.Logs -> "Logs"
-                    Screen.WebRtc -> "WebRTC"
                 })
             },
             navigationIcon = {
@@ -120,18 +129,56 @@ private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
                 if (screen == Screen.Cast) CastScreenActions(
                     onOpenSettings = { screen = Screen.Settings },
                     onOpenLogs = { screen = Screen.Logs },
-                    onOpenWebRtc = { screen = Screen.WebRtc },
                 )
             },
         )
     }) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (screen) {
-                Screen.Cast -> CastControlScreen(vm)
-                Screen.Settings -> SettingsScreen(vm)
+                Screen.Cast -> CastScreenRoot(
+                    castMode = castMode,
+                    onModeChange = { vm.setCastMode(it) },
+                    vm = vm,
+                    webRtcVm = webRtcVm,
+                )
+                Screen.Settings -> SettingsScreen(vm, webRtcVm)
                 Screen.Logs -> LogPanelScreen()
-                Screen.WebRtc -> WebRtcScreen(webRtcVm)
             }
+        }
+    }
+}
+
+// Single unified main screen. Mode toggle at the top, the selected mode's
+// device picker + active-session UI below. Both VMs stay alive so switching
+// modes is instant and doesn't drop in-flight discovery.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CastScreenRoot(
+    castMode: CastMode,
+    onModeChange: (CastMode) -> Unit,
+    vm: CastViewModel,
+    webRtcVm: WebRtcViewModel,
+) {
+    Column(Modifier.fillMaxSize()) {
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            val modes = CastMode.values()
+            modes.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = castMode == mode,
+                    onClick = { onModeChange(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                ) {
+                    Text(when (mode) { CastMode.HLS -> "HLS"; CastMode.WEBRTC -> "WebRTC" })
+                }
+            }
+        }
+        when (castMode) {
+            CastMode.HLS -> CastControlScreen(vm)
+            CastMode.WEBRTC -> WebRtcCastBody(webRtcVm)
         }
     }
 }
@@ -140,7 +187,6 @@ private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
 private fun CastScreenActions(
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
-    onOpenWebRtc: () -> Unit,
 ) {
     IconButton(onClick = onOpenSettings) {
         Icon(Icons.Filled.Settings, contentDescription = "Settings")
@@ -153,10 +199,6 @@ private fun CastScreenActions(
         DropdownMenuItem(
             text = { Text("Logs") },
             onClick = { menuOpen = false; onOpenLogs() },
-        )
-        DropdownMenuItem(
-            text = { Text("WebRTC") },
-            onClick = { menuOpen = false; onOpenWebRtc() },
         )
     }
 }

@@ -49,7 +49,8 @@ class StreamConfigStoreTest {
         ctx.getSharedPreferences("stream_config", 0).edit()
             .putString("resolution", "P4K_NOT_REAL")
             .apply()
-        assertEquals(Resolution.P720, store.load().resolution)
+        // Fallback is the StreamConfig() default, which changed in 0.8.0.
+        assertEquals(StreamConfig().resolution, store.load().resolution)
     }
 
     @Test fun `load tolerates partial prior state`() {

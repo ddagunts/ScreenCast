@@ -2,6 +2,7 @@ package io.github.ddagunts.screencast.util
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 
@@ -27,6 +28,23 @@ object NetworkUtils {
                 .mapNotNull { it.address as? Inet4Address }
                 .firstOrNull { !it.isLinkLocalAddress && !it.isLoopbackAddress }
             if (v4 != null) return v4.hostAddress
+        }
+        return null
+    }
+
+    // Same filter as getWifiIpAddress but returns the Network handle itself so
+    // callers can pass it to ConnectivityManager.bindProcessToNetwork or
+    // Network.bindSocket. Needed by WebRTC mode: the RTCConfiguration's
+    // networkPreference is only a hint, and libwebrtc's UDP sockets can still
+    // get routed through an always-on VPN's default route unless the process
+    // is pinned to the real Wi-Fi Network.
+    fun getWifiNetwork(context: Context): Network? {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        for (network in cm.allNetworks) {
+            val caps = cm.getNetworkCapabilities(network) ?: continue
+            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue
+            return network
         }
         return null
     }

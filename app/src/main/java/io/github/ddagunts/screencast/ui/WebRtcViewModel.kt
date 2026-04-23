@@ -8,6 +8,7 @@ import io.github.ddagunts.screencast.WebRtcForegroundService
 import io.github.ddagunts.screencast.WebRtcProjectionRequestActivity
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastDiscovery
+import io.github.ddagunts.screencast.webrtc.VideoPreset
 import io.github.ddagunts.screencast.webrtc.WebRtcConfigStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,10 +34,34 @@ class WebRtcViewModel(app: Application) : AndroidViewModel(app) {
     private val _appId = MutableStateFlow(configStore.appId)
     val appId: StateFlow<String> = _appId
 
+    private val _videoPreset = MutableStateFlow(configStore.videoPreset)
+    val videoPreset: StateFlow<VideoPreset> = _videoPreset
+
+    private val _maxBitrateMbps = MutableStateFlow(configStore.maxBitrateMbps)
+    val maxBitrateMbps: StateFlow<Int> = _maxBitrateMbps
+
+    private val _audioEnabled = MutableStateFlow(configStore.audioEnabled)
+    val audioEnabled: StateFlow<Boolean> = _audioEnabled
+
     fun setAppId(value: String) {
         val trimmed = value.trim()
         _appId.value = trimmed
         configStore.appId = trimmed
+    }
+
+    fun setVideoPreset(preset: VideoPreset) {
+        _videoPreset.value = preset
+        configStore.videoPreset = preset
+    }
+
+    fun setMaxBitrateMbps(mbps: Int) {
+        _maxBitrateMbps.value = mbps
+        configStore.maxBitrateMbps = mbps
+    }
+
+    fun setAudioEnabled(enabled: Boolean) {
+        _audioEnabled.value = enabled
+        configStore.audioEnabled = enabled
     }
 
     fun startCast(device: CastDevice) {
@@ -59,6 +84,24 @@ class WebRtcViewModel(app: Application) : AndroidViewModel(app) {
         ctx.startService(
             Intent(ctx, WebRtcForegroundService::class.java)
                 .setAction(WebRtcForegroundService.ACTION_STOP)
+        )
+    }
+
+    fun setVolume(level: Double) {
+        val ctx = getApplication<Application>()
+        ctx.startService(
+            Intent(ctx, WebRtcForegroundService::class.java)
+                .setAction(WebRtcForegroundService.ACTION_SET_VOLUME)
+                .putExtra(WebRtcForegroundService.EXTRA_VOLUME_LEVEL, level)
+        )
+    }
+
+    fun setMuted(muted: Boolean) {
+        val ctx = getApplication<Application>()
+        ctx.startService(
+            Intent(ctx, WebRtcForegroundService::class.java)
+                .setAction(WebRtcForegroundService.ACTION_SET_MUTE)
+                .putExtra(WebRtcForegroundService.EXTRA_MUTED, muted)
         )
     }
 

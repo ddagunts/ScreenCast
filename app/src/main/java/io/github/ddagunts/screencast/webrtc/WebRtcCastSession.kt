@@ -2,11 +2,13 @@ package io.github.ddagunts.screencast.webrtc
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastChannel
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastMessage
 import io.github.ddagunts.screencast.cast.CastNs
+import io.github.ddagunts.screencast.cast.CastVolume
 import io.github.ddagunts.screencast.cast.DEFAULT_RECEIVER_ID
 import io.github.ddagunts.screencast.cast.SENDER_ID
 import io.github.ddagunts.screencast.cast.closeMsg
@@ -14,6 +16,9 @@ import io.github.ddagunts.screencast.cast.connectMsg
 import io.github.ddagunts.screencast.cast.launchMsg
 import io.github.ddagunts.screencast.cast.pingMsg
 import io.github.ddagunts.screencast.cast.pongMsg
+import io.github.ddagunts.screencast.cast.setMuteMsg
+import io.github.ddagunts.screencast.cast.setVolumeMsg
+import io.github.ddagunts.screencast.util.NetworkUtils
 import io.github.ddagunts.screencast.util.logE
 import io.github.ddagunts.screencast.util.logI
 import io.github.ddagunts.screencast.util.logW
@@ -49,10 +54,17 @@ class WebRtcCastSession(
     private val context: Context,
     val device: CastDevice,
     pinStore: CastCertPinStore? = null,
+    private val sessionConfig: WebRtcSessionConfig,
 ) {
     private val channel = CastChannel(device.host, device.port, pinStore)
     private val _state = MutableStateFlow<WebRtcState>(WebRtcState.Idle)
     val state: StateFlow<WebRtcState> = _state
+
+    // Receiver-level volume: works exactly the same as in HLS mode — volume
+    // lives on the device (Chromecast), not the media session, so we can send
+    // SET_VOLUME without a transportId. UI hides the slider when isFixed.
+    private val _volume = MutableStateFlow(CastVolume())
+    val volume: StateFlow<CastVolume> = _volume
 
     private var scope: CoroutineScope? = null
     private var readerJob: Job? = null
@@ -67,6 +79,15 @@ class WebRtcCastSession(
             _state.value = WebRtcState.Error("custom App ID is not set — open Settings and paste it")
             return
         }
+        // Pin the process to the real Wi-Fi Network so libwebrtc's UDP sockets
+        // (ICE STUN + RTP) bypass any always-on VPN's default route. Without
+        // this, devices with apps like Rethink/bravedns active see ICE time
+        // out: packets leave via tun0 with source 10.x and the Chromecast
+        // can't route back. networkIgnoreMask in PeerConnectionFactory only
+        // hides VPN candidates from the OFFER; it doesn't control outbound
+        // routing. bindProcessToNetwork is the nuclear option that forces all
+        // sockets created thereafter onto the Wi-Fi Network. Undone in close().
+        bindProcessToWifi()
         _state.value = WebRtcState.Connecting(device)
         val s = CoroutineScope(Dispatchers.IO)
         scope = s
@@ -106,7 +127,7 @@ class WebRtcCastSession(
 
         // Peer is only built now, after transportId is known — so every ICE
         // candidate the library emits has a valid destination from the start.
-        val p = WebRtcPeer(context, onIceCandidate = { cand ->
+        val p = WebRtcPeer(context, sessionConfig, onIceCandidate = { cand ->
             scope?.launch {
                 runCatching {
                     channel.send(iceMsg(tid, cand.sdp, cand.sdpMid, cand.sdpMLineIndex))
@@ -162,7 +183,32 @@ class WebRtcCastSession(
         readerJob?.cancel()
         channel.close()
         scope?.cancel()
+        // Unpin the process from Wi-Fi — future non-WebRTC work should use
+        // the default routing again (including any VPN the user has on).
+        runCatching { unbindProcessFromNetwork() }
+            .onFailure { logW("close: unbindProcessFromNetwork: $it") }
         _state.value = WebRtcState.Idle
+    }
+
+    private fun bindProcessToWifi() {
+        val net = NetworkUtils.getWifiNetwork(context)
+        if (net == null) {
+            logW("bindProcessToWifi: no Wi-Fi Network with NOT_VPN — skipping bind")
+            return
+        }
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        if (cm == null) {
+            logW("bindProcessToWifi: ConnectivityManager unavailable")
+            return
+        }
+        val ok = cm.bindProcessToNetwork(net)
+        logI("bindProcessToWifi: ok=$ok network=$net")
+    }
+
+    private fun unbindProcessFromNetwork() {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
+        cm.bindProcessToNetwork(null)
+        logI("unbindProcessFromNetwork")
     }
 
     private suspend fun heartbeatLoop() {
@@ -229,8 +275,35 @@ class WebRtcCastSession(
         }
     }
 
+    // Volume lives on the receiver, not the media session, so we can send
+    // these without waiting for transportId. Coerce level into [0, 1] to
+    // match the Cast V2 contract — receivers silently clamp anyway, but
+    // clean bounds keep the slider behaving correctly.
+    suspend fun setVolume(level: Double) {
+        if (_volume.value.isFixed) {
+            logW("setVolume: receiver reports fixed volume")
+            return
+        }
+        channel.send(setVolumeMsg(level).first)
+    }
+
+    suspend fun setMute(muted: Boolean) {
+        channel.send(setMuteMsg(muted).first)
+    }
+
     private fun parseReceiverStatus(obj: JSONObject) {
         val status = obj.optJSONObject("status") ?: return
+        // Volume arrives on both the unsolicited requestId=0 broadcast and
+        // the LAUNCH response, so we pick it up immediately after connect
+        // (before any applications are populated). Parse it unconditionally.
+        status.optJSONObject("volume")?.let { v ->
+            val current = _volume.value
+            _volume.value = CastVolume(
+                level = v.optDouble("level", current.level),
+                muted = v.optBoolean("muted", current.muted),
+                controlType = v.optString("controlType", current.controlType),
+            )
+        }
         val apps = status.optJSONArray("applications") ?: return
         if (apps.length() == 0) return
         val app = apps.getJSONObject(0)

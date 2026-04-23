@@ -4,6 +4,58 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0]
+
+### Added
+- Unified main Cast screen with a top-of-screen **HLS / WebRTC** toggle. The
+  app remembers the last-used mode across launches; WebRTC is no longer
+  behind an overflow menu.
+- Runtime-configurable WebRTC capture settings in the Settings tab:
+  resolution preset (720p30 / 1080p30 / 1080p60), max bitrate
+  (1 / 2 / 4 / 6 / 8 / 12 Mbps), and an audio on/off toggle. Custom receiver
+  App ID also moved into Settings. All persist across launches; changes
+  apply to the next cast.
+- Volume control in WebRTC mode: receiver-level slider + mute button on the
+  active-cast card, using the same Cast V2 `SET_VOLUME` path HLS already
+  uses. External changes (TV remote, Google Home) reflect back in the UI.
+  Hidden when the receiver reports a fixed-volume control type (e.g. a
+  soundbar that owns volume itself).
+
+### Changed
+- HLS defaults tuned for lower latency: 1080p resolution / 1 s segments /
+  3-segment playlist window / 1.0× live-edge factor (previously
+  720p / 2 s / 6 / 1.5×). Applies only to fresh installs — existing
+  preferences are preserved.
+- WebRTC defaults: 1080p60 / 12 Mbps / audio off (previously
+  1080p30 / 4 Mbps / audio on). Applies only to fresh installs.
+- Settings screen now has HLS and WebRTC sections, separated by a divider.
+- WebRTC audio plays through the Web Audio API on the receiver instead of
+  an `<audio>` element — tighter real-time scheduling, less susceptible to
+  HTMLMediaElement buffering jitter.
+- WebRTC audio pipeline: hardware AEC/NS on the ADM and
+  `googEchoCancellation` / `googAutoGainControl` / `googNoiseSuppression` /
+  `googHighpassFilter` constraints on the audio source are disabled. These
+  are VoIP microphone algorithms that mangle music-playback capture.
+- WebRTC audio: `AudioRecord.read` uses `READ_NON_BLOCKING` so libwebrtc's
+  10 ms audio thread can't stall on source hiccups.
+- WebRTC: separate stream IDs for video (`screen-video`) vs audio
+  (`screen-audio`) so the receiver handles them independently.
+
+### Fixed
+- WebRTC receiver: recreate `RTCPeerConnection` on every new OFFER. The
+  previous module-level singleton was closed on BYE, so consecutive casts
+  silently failed in `setRemoteDescription`.
+- WebRTC receiver: signal-handler failures now surface on the TV status
+  element instead of the invisible Chrome console, plus per-step
+  breadcrumbs through `setRemoteDescription` / `createAnswer` /
+  `setLocalDescription`.
+- WebRTC ICE connectivity: restrict candidate gathering to non-VPN Wi-Fi
+  (`networkIgnoreMask`) and pin the process to the real Wi-Fi Network via
+  `ConnectivityManager.bindProcessToNetwork`. Fixes always-on DNS-filter
+  VPNs (Rethink, NextDNS, etc.) where UDP was leaking onto the tunnel
+  interface and ICE timed out in 15 s.
+
+
 ## [0.7.2]
 
 ### Changed
@@ -250,6 +302,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.8.0]: https://github.com/ddagunts/ScreenCast/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/ddagunts/ScreenCast/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/ddagunts/ScreenCast/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/ddagunts/ScreenCast/compare/v0.6.1...v0.7.0

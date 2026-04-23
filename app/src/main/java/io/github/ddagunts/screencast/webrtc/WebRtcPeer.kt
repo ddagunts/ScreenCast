@@ -40,6 +40,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
 // coroutine side is responsible for its own thread discipline.
 class WebRtcPeer(
     private val context: Context,
+    private val config: WebRtcSessionConfig,
     private val onIceCandidate: (IceCandidate) -> Unit,
 ) {
     private val eglBase: EglBase = EglBase.create()
@@ -71,27 +72,51 @@ class WebRtcPeer(
                 factoryInitialized = true
             }
         }
-        // JavaAudioDeviceModule with an AudioBufferCallback is how we inject
-        // MediaProjection-captured PCM into libwebrtc's audio pipeline. The
-        // module must exist at factory-creation time; the actual AudioRecord
-        // is attached later in addScreenSource() once MediaProjection is
-        // available. Until then, the callback streams silence.
-        val capture = WebRtcAudioCapture()
-        audioCapture = capture
-        val adm = JavaAudioDeviceModule.builder(context.applicationContext)
-            .setSampleRate(WEBRTC_AUDIO_SAMPLE_RATE)
-            .setUseStereoInput(WEBRTC_AUDIO_CHANNELS == 2)
-            .setAudioBufferCallback(capture)
-            .createAudioDeviceModule()
-        audioModule = adm
+        // Restrict candidate gathering to real Wi-Fi / Ethernet. Without this
+        // libwebrtc also offers VPN-tunnel (10.x), CGN (192.0.0.x), and public
+        // IPv6 candidates — none of which a LAN Chromecast can reach. The ICE
+        // check then fails on the top-priority pair and times out in 15 s
+        // before falling through to the real Wi-Fi candidate (symptom: session
+        // stuck on "Signaling" on the Android side, ICE state FAILED in logs).
+        val pcfOptions = PeerConnectionFactory.Options().apply {
+            networkIgnoreMask =
+                PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or
+                    PeerConnectionFactory.Options.ADAPTER_TYPE_CELLULAR or
+                    PeerConnectionFactory.Options.ADAPTER_TYPE_VPN
+        }
 
-        factory = PeerConnectionFactory.builder()
-            .setAudioDeviceModule(adm)
+        // Build the factory. When audio is enabled we install our custom ADM
+        // (JavaAudioDeviceModule + AudioBufferCallback) so MediaProjection PCM
+        // can be fed into libwebrtc's audio pipeline — the AudioRecord itself
+        // is attached later in addScreenSource() once MediaProjection is
+        // available. When audio is disabled we skip the ADM entirely, no
+        // m=audio section appears in the OFFER, and there's nothing to
+        // configure — cheapest way to honor the user's audio toggle.
+        val factoryBuilder = PeerConnectionFactory.builder()
+            .setOptions(pcfOptions)
             .setVideoEncoderFactory(
                 DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
             )
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-            .createPeerConnectionFactory()
+
+        if (config.audioEnabled) {
+            val capture = WebRtcAudioCapture()
+            audioCapture = capture
+            val adm = JavaAudioDeviceModule.builder(context.applicationContext)
+                .setSampleRate(WEBRTC_AUDIO_SAMPLE_RATE)
+                .setUseStereoInput(WEBRTC_AUDIO_CHANNELS == 2)
+                // HW AEC + NS are VoIP mic algorithms that mangle playback
+                // capture (music gets noise-gated, echoes get "cancelled"
+                // against a reference signal that doesn't exist).
+                .setUseHardwareAcousticEchoCanceler(false)
+                .setUseHardwareNoiseSuppressor(false)
+                .setAudioBufferCallback(capture)
+                .createAudioDeviceModule()
+            audioModule = adm
+            factoryBuilder.setAudioDeviceModule(adm)
+        }
+
+        factory = factoryBuilder.createPeerConnectionFactory()
 
         // Empty ICE server list: both peers are on the same LAN, so host
         // candidates alone are reachable. STUN would add latency for no gain;
@@ -100,6 +125,12 @@ class WebRtcPeer(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             // continualGatheringPolicy defaults to GATHER_ONCE, which is fine
             // for a LAN — no network changes expected mid-cast.
+            //
+            // Prefer the Wi-Fi adapter when libwebrtc chooses between available
+            // networks. Complementary to WebRtcCastSession.bindProcessToWifi()
+            // — the bind forces socket-level routing, this preference guides
+            // candidate selection priority.
+            networkPreference = PeerConnection.AdapterType.WIFI
         }
 
         peer = factory!!.createPeerConnection(rtcConfig, observer)
@@ -137,32 +168,50 @@ class WebRtcPeer(
         val helper = SurfaceTextureHelper.create("WebRtcScreenCapture", eglBase.eglBaseContext)
         surfaceTextureHelper = helper
         cap.initialize(helper, context, source.capturerObserver)
-        cap.startCapture(WEBRTC_VIDEO_WIDTH, WEBRTC_VIDEO_HEIGHT, WEBRTC_VIDEO_FPS)
+        val preset = config.videoPreset
+        cap.startCapture(preset.width, preset.height, preset.fps)
 
         val track = f.createVideoTrack("screen0", source)
         videoTrack = track
         // addTrack with an empty streamIds list emits an a=msid:- line; the
         // receiver page treats the incoming transceiver as its primary video
         // stream, so the streamId string itself is cosmetic.
-        val sender = pc.addTrack(track, listOf("screen-stream"))
+        // Separate stream IDs for video and audio so the receiver can give each
+        // its own MediaStream. When both share one stream, the receiver's
+        // MediaStream dispatches tracks in arrival order and the audio element
+        // can end up sharing a processing queue with large video frames — a
+        // contributor to choppy audio on the TV.
+        val sender = pc.addTrack(track, listOf("screen-video"))
         configureVideoSender(sender)
 
-        // Audio track. ScreenCapturerAndroid owns the MediaProjection instance
-        // (obtained lazily inside startCapture); share it with AudioPlayback
-        // Capture so we don't need a second consent prompt. If the projection
-        // isn't exposed yet (older AAR), the audio callback keeps streaming
-        // silence — the stream still has an audio track, just empty.
-        val projection = cap.mediaProjection
-        if (projection != null) {
-            audioCapture?.attachProjection(projection)
-        } else {
-            logW("ScreenCapturerAndroid.getMediaProjection returned null — audio will be silent")
+        if (config.audioEnabled) {
+            // Audio track. ScreenCapturerAndroid owns the MediaProjection
+            // instance (obtained lazily inside startCapture); share it with
+            // AudioPlaybackCapture so we don't need a second consent prompt.
+            // If the projection isn't exposed yet (older AAR), the audio
+            // callback streams silence — the track still exists, just empty.
+            val projection = cap.mediaProjection
+            if (projection != null) {
+                audioCapture?.attachProjection(projection)
+            } else {
+                logW("ScreenCapturerAndroid.getMediaProjection returned null — audio will be silent")
+            }
+            // Audio constraints: disable libwebrtc's audio-processing chain for
+            // our non-voice source. googEchoCancellation / googAutoGainControl
+            // / googNoiseSuppression / googHighpassFilter are VoIP-microphone
+            // features; leaving them on mangles music playback capture.
+            val audioConstraints = MediaConstraints().apply {
+                mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
+                mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "false"))
+            }
+            val aSource = f.createAudioSource(audioConstraints)
+            audioSource = aSource
+            val aTrack = f.createAudioTrack("audio0", aSource)
+            audioTrack = aTrack
+            pc.addTrack(aTrack, listOf("screen-audio"))
         }
-        val aSource = f.createAudioSource(MediaConstraints())
-        audioSource = aSource
-        val aTrack = f.createAudioTrack("audio0", aSource)
-        audioTrack = aTrack
-        pc.addTrack(aTrack, listOf("screen-stream"))
     }
 
     // Override libwebrtc's conservative defaults for a LAN-only cast:
@@ -180,14 +229,15 @@ class WebRtcPeer(
             logW("configureVideoSender: no encodings on sender, skipping bitrate/degradation tuning")
             return
         }
-        params.encodings[0].maxBitrateBps = WEBRTC_MAX_BITRATE_BPS
+        val maxBitrate = config.maxBitrateBps
+        params.encodings[0].maxBitrateBps = maxBitrate
         params.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
         // setParameters() returns false when libwebrtc rejects the update
         // (e.g. if a renegotiation clobbered it). Log it — the defaults will
         // still work, just conservatively.
         val applied = sender.setParameters(params)
         if (applied) {
-            logI("video sender configured: maxBitrate=${WEBRTC_MAX_BITRATE_BPS / 1_000_000} Mbps, degradation=MAINTAIN_RESOLUTION")
+            logI("video sender configured: preset=${config.videoPreset.label} maxBitrate=${maxBitrate / 1_000_000} Mbps degradation=MAINTAIN_RESOLUTION")
         } else {
             logW("video sender.setParameters returned false — bitrate/degradation not applied")
         }

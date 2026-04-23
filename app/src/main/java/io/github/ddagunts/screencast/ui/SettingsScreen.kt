@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -19,6 +20,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -33,16 +35,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.ddagunts.screencast.media.Resolution
 import io.github.ddagunts.screencast.media.StreamConfig
+import io.github.ddagunts.screencast.webrtc.VideoPreset
+import io.github.ddagunts.screencast.webrtc.WEBRTC_BITRATE_MBPS_OPTIONS
 import kotlin.math.roundToInt
 
 @Composable
-fun SettingsScreen(vm: CastViewModel) {
+fun SettingsScreen(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
     val cfg by vm.streamConfig.collectAsStateWithLifecycle()
     val activeCasts by vm.activeCasts.collectAsStateWithLifecycle()
     val pairedHosts by vm.pairedHosts.collectAsStateWithLifecycle()
+    val webRtcSession by webRtcVm.session.collectAsStateWithLifecycle()
+    val webRtcAppId by webRtcVm.appId.collectAsStateWithLifecycle()
+    val webRtcPreset by webRtcVm.videoPreset.collectAsStateWithLifecycle()
+    val webRtcBitrate by webRtcVm.maxBitrateMbps.collectAsStateWithLifecycle()
+    val webRtcAudio by webRtcVm.audioEnabled.collectAsStateWithLifecycle()
+    val webRtcCasting = webRtcSession != null
     // Pins can be added from CastChannel.verifyPin() during any active
     // handshake, which happens off this screen. Re-read on entry so newly
     // TOFU'd hosts show up without waiting for the next app restart.
@@ -219,6 +230,96 @@ fun SettingsScreen(vm: CastViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider()
+        Text(
+            "WebRTC mode",
+            style = MaterialTheme.typography.titleMedium,
+        )
+
+        SettingCard("Custom receiver App ID") {
+            Text(
+                "Defaults to the project's hosted receiver. Override only if you've registered your own receiver URL at cast.google.com.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = webRtcAppId,
+                onValueChange = { webRtcVm.setAppId(it) },
+                label = { Text("App ID") },
+                singleLine = true,
+                enabled = !webRtcCasting,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        SettingCard("Capture") {
+            Text(
+                "Applied on next WebRTC cast. Lower bitrate if audio is choppy — small audio RTPs can queue behind large video frames on Wi-Fi.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            SettingPickerRow("Resolution") {
+                SettingsDropdown(
+                    label = webRtcPreset.label,
+                    enabled = !webRtcCasting,
+                    options = VideoPreset.entries.map { it.label to it },
+                    onSelect = { webRtcVm.setVideoPreset(it) },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            SettingPickerRow("Max bitrate") {
+                SettingsDropdown(
+                    label = "$webRtcBitrate Mbps",
+                    enabled = !webRtcCasting,
+                    options = WEBRTC_BITRATE_MBPS_OPTIONS.map { "$it Mbps" to it },
+                    onSelect = { webRtcVm.setMaxBitrateMbps(it) },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Audio", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = webRtcAudio,
+                    onCheckedChange = { webRtcVm.setAudioEnabled(it) },
+                    enabled = !webRtcCasting,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingPickerRow(label: String, content: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f))
+        content()
+    }
+}
+
+@Composable
+private fun <T> SettingsDropdown(
+    label: String,
+    enabled: Boolean,
+    options: List<Pair<String, T>>,
+    onSelect: (T) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }, enabled = enabled) {
+            Text(label)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (text, value) ->
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = { open = false; onSelect(value) },
+                )
+            }
         }
     }
 }

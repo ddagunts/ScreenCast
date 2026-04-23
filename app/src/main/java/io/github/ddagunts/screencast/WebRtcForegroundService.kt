@@ -53,6 +53,20 @@ class WebRtcForegroundService : Service() {
         when (action) {
             ACTION_START -> handleStart(intent)
             ACTION_STOP -> stopCast()
+            ACTION_SET_VOLUME -> {
+                val level = intent.getDoubleExtra(EXTRA_VOLUME_LEVEL, Double.NaN)
+                val s = session
+                if (s != null && !level.isNaN()) {
+                    scope.launch { runCatching { s.setVolume(level) } }
+                }
+            }
+            ACTION_SET_MUTE -> {
+                val muted = intent.getBooleanExtra(EXTRA_MUTED, false)
+                val s = session
+                if (s != null) {
+                    scope.launch { runCatching { s.setMute(muted) } }
+                }
+            }
         }
         return START_NOT_STICKY
     }
@@ -92,19 +106,26 @@ class WebRtcForegroundService : Service() {
         val device = CastDevice(name, host, port)
         _session.value = SessionSnapshot(device = device, status = "CONNECTING")
 
-        val s = WebRtcCastSession(this, device, CastCertPinStore(this))
+        // Snapshot the user's tunable prefs here — the session holds the
+        // values for its lifetime. Changing prefs mid-cast has no effect
+        // (UI disables the controls while casting); the next startCast
+        // picks up any changes.
+        val cfg = io.github.ddagunts.screencast.webrtc.WebRtcConfigStore(this).snapshot()
+        val s = WebRtcCastSession(this, device, CastCertPinStore(this), cfg)
         session = s
         sessionJob = scope.launch {
             // Observe state and mirror to the global flow so the UI can see it.
             launch {
                 s.state.collect { st ->
+                    val currentVol = _session.value?.volume
+                        ?: io.github.ddagunts.screencast.cast.CastVolume()
                     _session.value = when (st) {
                         is WebRtcState.Idle -> null
-                        is WebRtcState.Connecting -> SessionSnapshot(device, "CONNECTING")
-                        is WebRtcState.Launching -> SessionSnapshot(device, "LAUNCHING")
-                        is WebRtcState.Signaling -> SessionSnapshot(device, "SIGNALING")
-                        is WebRtcState.Casting -> SessionSnapshot(device, "CASTING")
-                        is WebRtcState.Error -> SessionSnapshot(device, "ERROR", st.message)
+                        is WebRtcState.Connecting -> SessionSnapshot(device, "CONNECTING", volume = currentVol)
+                        is WebRtcState.Launching -> SessionSnapshot(device, "LAUNCHING", volume = currentVol)
+                        is WebRtcState.Signaling -> SessionSnapshot(device, "SIGNALING", volume = currentVol)
+                        is WebRtcState.Casting -> SessionSnapshot(device, "CASTING", volume = currentVol)
+                        is WebRtcState.Error -> SessionSnapshot(device, "ERROR", st.message, volume = currentVol)
                     }
                     refreshNotification()
                     if (st is WebRtcState.Idle || st is WebRtcState.Error) {
@@ -113,6 +134,14 @@ class WebRtcForegroundService : Service() {
                         // Hold the ERROR in the flow so the UI shows "why" and
                         // let the user tap Stop to dismiss.
                     }
+                }
+            }
+            // Mirror receiver volume onto the snapshot so the UI slider tracks
+            // device-side changes (mute button on the TV, Google Home app, etc).
+            launch {
+                s.volume.collect { v ->
+                    val snap = _session.value ?: return@collect
+                    _session.value = snap.copy(volume = v)
                 }
             }
             runCatching {
@@ -224,17 +253,23 @@ class WebRtcForegroundService : Service() {
         // "CONNECTING" | "LAUNCHING" | "SIGNALING" | "CASTING" | "ERROR"
         val status: String,
         val errorMessage: String? = null,
+        val volume: io.github.ddagunts.screencast.cast.CastVolume =
+            io.github.ddagunts.screencast.cast.CastVolume(),
     )
 
     companion object {
         const val ACTION_START = "io.github.ddagunts.screencast.webrtc.START"
         const val ACTION_STOP = "io.github.ddagunts.screencast.webrtc.STOP"
+        const val ACTION_SET_VOLUME = "io.github.ddagunts.screencast.webrtc.SET_VOLUME"
+        const val ACTION_SET_MUTE = "io.github.ddagunts.screencast.webrtc.SET_MUTE"
         const val EXTRA_DEVICE_NAME = "device_name"
         const val EXTRA_DEVICE_HOST = "device_host"
         const val EXTRA_DEVICE_PORT = "device_port"
         const val EXTRA_APP_ID = "app_id"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_VOLUME_LEVEL = "volume_level"
+        const val EXTRA_MUTED = "muted"
         const val CHANNEL_ID = "webrtc_cast"
         const val NOTIFICATION_ID = 2
 

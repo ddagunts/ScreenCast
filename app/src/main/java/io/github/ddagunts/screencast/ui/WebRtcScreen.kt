@@ -21,16 +21,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +51,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.ddagunts.screencast.cast.CastDevice
 import kotlinx.coroutines.delay
 
+// Body for the unified main screen when cast mode is WebRTC. Renders the
+// device picker + active-session card only; App ID / resolution / bitrate /
+// audio-toggle all live in SettingsScreen now. The App-ID-missing state here
+// just disables the picker and points the user at Settings, rather than
+// duplicating the text field.
 @Composable
-fun WebRtcScreen(vm: WebRtcViewModel) {
+fun WebRtcCastBody(vm: WebRtcViewModel) {
     val discovered by vm.discovered.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
     val appId by vm.appId.collectAsStateWithLifecycle()
@@ -62,13 +71,16 @@ fun WebRtcScreen(vm: WebRtcViewModel) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AppIdCard(appId = appId, onChange = { vm.setAppId(it) }, enabled = !casting)
-
         // WebRTC mode is single-device — if a session exists, show it; otherwise
         // show the picker gated by a non-empty App ID.
         val snap = session
         if (snap != null) {
-            ActiveWebRtcCard(snap = snap, onStop = { vm.stop() })
+            ActiveWebRtcCard(
+                snap = snap,
+                onStop = { vm.stop() },
+                onVolume = { vm.setVolume(it) },
+                onMute = { vm.setMuted(it) },
+            )
         } else {
             IdleWebRtcHeader(appIdMissing)
         }
@@ -87,38 +99,13 @@ fun WebRtcScreen(vm: WebRtcViewModel) {
 }
 
 @Composable
-private fun AppIdCard(appId: String, onChange: (String) -> Unit, enabled: Boolean) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text("Custom receiver App ID", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Defaults to the project's hosted receiver. Override only if you've registered " +
-                    "your own receiver URL at cast.google.com.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = appId,
-                onValueChange = onChange,
-                label = { Text("App ID") },
-                singleLine = true,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-@Composable
 private fun IdleWebRtcHeader(appIdMissing: Boolean) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("WebRTC mode", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (appIdMissing) "Set a custom receiver App ID above to enable the picker."
+                if (appIdMissing) "Open Settings and set a custom receiver App ID to enable the picker."
                 else "Low-latency screen mirroring via WebRTC. Sub-second latency on typical Wi-Fi.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -131,6 +118,8 @@ private fun IdleWebRtcHeader(appIdMissing: Boolean) {
 private fun ActiveWebRtcCard(
     snap: io.github.ddagunts.screencast.WebRtcForegroundService.SessionSnapshot,
     onStop: () -> Unit,
+    onVolume: (Double) -> Unit,
+    onMute: (Boolean) -> Unit,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -147,11 +136,64 @@ private fun ActiveWebRtcCard(
                 }
                 WebRtcStatusChip(status = snap.status)
             }
+            // Receiver-level volume (Chromecast device volume). This is the
+            // same Cast V2 SET_VOLUME that HLS mode uses — always available
+            // once the channel is up, independent of WebRTC media state.
+            VolumeRow(
+                volume = snap.volume,
+                onVolume = onVolume,
+                onMute = onMute,
+            )
             Spacer(Modifier.height(12.dp))
             FilledIconButton(onClick = onStop) {
                 Icon(Icons.Filled.Stop, contentDescription = "Stop WebRTC cast")
             }
         }
+    }
+}
+
+@Composable
+private fun VolumeRow(
+    volume: io.github.ddagunts.screencast.cast.CastVolume,
+    onVolume: (Double) -> Unit,
+    onMute: (Boolean) -> Unit,
+) {
+    // Receivers with a fixed-volume amp / soundbar report controlType="fixed";
+    // in that case SET_VOLUME is silently dropped and we'd be lying to show
+    // a slider. Hide the row entirely in that case — matches HLS behavior.
+    if (volume.isFixed) return
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onMute(!volume.muted) }) {
+            Icon(
+                when {
+                    volume.muted -> Icons.AutoMirrored.Filled.VolumeOff
+                    volume.level <= 0.001 -> Icons.AutoMirrored.Filled.VolumeMute
+                    else -> Icons.AutoMirrored.Filled.VolumeUp
+                },
+                contentDescription = if (volume.muted) "Unmute" else "Mute",
+            )
+        }
+        // A locally tracked drag value smooths the slider: without it, echo
+        // from the receiver's RECEIVER_STATUS (which arrives a beat after
+        // our SET_VOLUME) fights with the thumb position.
+        var dragging by remember { mutableStateOf(false) }
+        var dragValue by remember { mutableStateOf(volume.level.toFloat()) }
+        val shown = if (dragging) dragValue else volume.level.toFloat()
+        Slider(
+            value = shown,
+            onValueChange = {
+                dragging = true
+                dragValue = it
+                onVolume(it.toDouble())
+            },
+            onValueChangeFinished = {
+                dragging = false
+            },
+            valueRange = 0f..1f,
+            enabled = !volume.muted,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -221,7 +263,7 @@ private fun AvailableWebRtcSection(
 private fun FooterHint(appIdMissing: Boolean) {
     val msg = if (appIdMissing) {
         "WebRTC mode needs a custom Cast receiver App ID. The app ships with a default; " +
-            "if you've cleared it, restore it or register your own at cast.google.com."
+            "if you've cleared it, restore it in Settings or register your own at cast.google.com."
     } else {
         "Each cast re-prompts for screen capture consent (Android requirement). " +
             "Only one WebRTC session at a time."

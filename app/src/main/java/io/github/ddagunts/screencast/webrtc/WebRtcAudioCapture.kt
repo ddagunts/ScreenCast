@@ -99,8 +99,13 @@ class WebRtcAudioCapture : JavaAudioDeviceModule.AudioBufferCallback {
             logRate(preSig, 0L, 0)
             return 0L
         }
+        // READ_NON_BLOCKING: if AudioRecord's ring is momentarily empty, return
+        // 0 immediately and let us fill the tail with silence rather than
+        // stalling libwebrtc's audio thread for up to 10 ms. A blocked read
+        // there delays the encode pipeline and causes the receiver to drop
+        // frames — the user-visible symptom is choppy audio.
         val n = try {
-            rec.read(buffer, bytesRead, AudioRecord.READ_BLOCKING)
+            rec.read(buffer, bytesRead, AudioRecord.READ_NON_BLOCKING)
         } catch (_: Throwable) { -1 }
         if (n < bytesRead) zeroTail(buffer, pos, bytesRead, if (n > 0) n else 0)
         val postSig = sampleSig(buffer, pos, bytesRead)

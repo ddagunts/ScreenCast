@@ -9,10 +9,10 @@ enum class Resolution(val label: String, val width: Int, val height: Int, val bi
 }
 
 data class StreamConfig(
-    val segmentDurationSec: Double = 2.0,
-    val windowSize: Int = 6,
-    val liveEdgeFactor: Double = 1.5,
-    val resolution: Resolution = Resolution.P720,
+    val segmentDurationSec: Double = 1.0,
+    val windowSize: Int = 3,
+    val liveEdgeFactor: Double = 1.0,
+    val resolution: Resolution = Resolution.P1080,
     val syncStart: Boolean = true,
     val syncIntervalSec: Int = 10,
     val syncDriftThresholdMs: Int = 30,

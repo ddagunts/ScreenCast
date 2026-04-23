@@ -49,8 +49,8 @@ class StreamConfigTest {
         assertEquals(500, StreamConfig.MAX_SYNC_DRIFT_MS)
     }
 
-    @Test fun `default resolution is 720p`() {
-        assertEquals(Resolution.P720, StreamConfig().resolution)
+    @Test fun `default resolution is 1080p`() {
+        assertEquals(Resolution.P1080, StreamConfig().resolution)
     }
 
     @Test fun `resolution bitrates are strictly increasing with size`() {

@@ -1,0 +1,12 @@
+• New: HLS / WebRTC toggle on the main
+  screen; mode is remembered.
+• New: WebRTC settings in Settings tab
+  (resolution, bitrate, audio) + volume
+  slider on the active WebRTC card.
+• New defaults — HLS: 1080p, 1 s, 3
+  segments, 1.0× live-edge. WebRTC:
+  1080p60, 12 Mbps, audio off.
+  (Existing prefs are preserved.)
+• Fixes: consecutive WebRTC casts work;
+  ICE no longer stalls behind always-on
+  VPNs (Rethink, NextDNS, etc.).

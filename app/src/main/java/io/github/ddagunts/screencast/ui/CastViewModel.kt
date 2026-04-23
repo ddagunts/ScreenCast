@@ -4,7 +4,9 @@ import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.ddagunts.screencast.AppSettingsStore
 import io.github.ddagunts.screencast.CastForegroundService
+import io.github.ddagunts.screencast.CastMode
 import io.github.ddagunts.screencast.MediaProjectionRequestActivity
 import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastDevice
@@ -32,6 +34,20 @@ class CastViewModel(app: Application) : AndroidViewModel(app) {
     private val store = StreamConfigStore(app)
     private val _streamConfig = MutableStateFlow(store.load())
     val streamConfig: StateFlow<StreamConfig> = _streamConfig
+
+    // App-level cast mode (HLS vs WebRTC). Lives here so the single main-screen
+    // mode toggle and the Settings screen can both read/write one source of
+    // truth. The two VMs (CastViewModel, WebRtcViewModel) each still own their
+    // own discovery + session state — this flag just decides which one the
+    // main screen currently surfaces.
+    private val appSettings = AppSettingsStore(app)
+    private val _castMode = MutableStateFlow(appSettings.castMode)
+    val castMode: StateFlow<CastMode> = _castMode
+
+    fun setCastMode(mode: CastMode) {
+        _castMode.value = mode
+        appSettings.castMode = mode
+    }
 
     // Hosts with a pinned TLS fingerprint. Only mutated by the VM on explicit
     // forget; new pins made during an active cast's handshake won't appear
