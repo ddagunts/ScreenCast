@@ -8,6 +8,15 @@ const NAMESPACE = 'urn:x-cast:io.github.ddagunts.screencast.webrtc';
 const video = document.getElementById('video');
 const statusEl = document.getElementById('status');
 
+// Dedicated <audio> element for the audio track. Keeps autoplay rules separate
+// from the <video> element (which typically needs `muted` to autoplay); an
+// <audio> in a CAF receiver context can play unmuted right away. If we tried
+// to play audio through <video>, muted fallback would silence us permanently.
+const audio = document.createElement('audio');
+audio.autoplay = true;
+audio.setAttribute('playsinline', '');
+document.body.appendChild(audio);
+
 function setStatus(text) {
   if (!statusEl) return;
   statusEl.textContent = text;
@@ -62,58 +71,79 @@ options.customNamespaces[NAMESPACE] =
 // sensible if a second sender ever attaches.
 let senderId = null;
 
-// Single RTCPeerConnection per receiver lifetime. Empty iceServers list —
-// both peers live on the same LAN, so host candidates are enough; no STUN
-// round-trip, no TURN relays.
-const pc = new RTCPeerConnection({ iceServers: [] });
+// Current RTCPeerConnection — rebuilt on every new OFFER. The previous
+// implementation made this a module-level `const`, which meant once we
+// `pc.close()` on BYE, any subsequent OFFER silently failed (setRemoteDescription
+// throws on a closed peer, handled-but-invisible). Recreate per OFFER so each
+// cast attempt starts fresh.
+let pc = null;
 
-pc.ontrack = (evt) => {
-  console.log('ontrack', evt.track && evt.track.kind, evt.streams && evt.streams[0]);
-  const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
-  video.srcObject = stream;
-  // Surface track arrival but DO NOT hideStatus() yet — ontrack fires right
-  // after setRemoteDescription succeeds (before createAnswer/setLocalDescription
-  // and long before ICE completes). Hiding here would mask any failure in the
-  // subsequent signaling steps. We hide only when onconnectionstatechange
-  // reports 'connected'.
-  setStatus(`track: ${evt.track && evt.track.kind || '?'}`);
-  // Trusted CAF context permits unmuted autoplay; fall back to muted if the
-  // browser rejects it. Surface unmuted failure to status so we can see it.
-  video.muted = false;
-  const p = video.play();
-  if (p && typeof p.catch === 'function') {
-    p.catch(err => {
-      setStatus(`play unmuted failed: ${err && err.name || err}; retrying muted`);
+function closeCurrentPeer() {
+  if (!pc) return;
+  try { pc.close(); } catch (_) {}
+  pc = null;
+}
+
+function createPeer() {
+  // Empty iceServers list: both peers are on the same LAN, so host candidates
+  // are enough; no STUN round-trip, no TURN relays.
+  const p = new RTCPeerConnection({ iceServers: [] });
+
+  p.ontrack = (evt) => {
+    const kind = evt.track && evt.track.kind || '?';
+    console.log('ontrack', kind, evt.streams && evt.streams[0]);
+    const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
+    setStatus(`track: ${kind} (tracks in stream: ${stream.getTracks().length})`);
+    if (kind === 'audio') {
+      // Route audio to the dedicated <audio> element. autoplay on an <audio>
+      // in a CAF receiver is permitted unmuted; playing audio through a
+      // muted-autoplay <video> would silence us.
+      audio.srcObject = stream;
+      audio.muted = false;
+      audio.volume = 1.0;
+      const ap = audio.play();
+      if (ap && typeof ap.catch === 'function') {
+        ap.catch(err => setStatus(`audio.play failed: ${err && err.name || err}`));
+      }
+    } else {
+      // Video: stays in the fullscreen <video> element. Use muted so autoplay
+      // always goes through; the <audio> element is carrying the actual sound.
+      video.srcObject = stream;
       video.muted = true;
-      video.play().catch(e => setStatus(`play muted also failed: ${e && e.name || e}`));
-    });
-  }
-};
-
-pc.onicecandidate = (evt) => {
-  if (!evt.candidate) return;
-  const payload = {
-    type: 'ICE',
-    candidate: {
-      candidate: evt.candidate.candidate,
-      sdpMid: evt.candidate.sdpMid,
-      sdpMLineIndex: evt.candidate.sdpMLineIndex,
-    },
+      const vp = video.play();
+      if (vp && typeof vp.catch === 'function') {
+        vp.catch(err => setStatus(`video.play failed: ${err && err.name || err}`));
+      }
+    }
   };
-  sendSignal(payload);
-};
 
-pc.onconnectionstatechange = () => {
-  const s = pc.connectionState;
-  console.log('pc state', s);
-  if (s === 'connected') hideStatus();
-  else if (s === 'failed') setStatus('WebRTC connection failed');
-  else if (s === 'disconnected') setStatus('Sender disconnected');
-  else setStatus(`pc state: ${s}`);
-};
-pc.oniceconnectionstatechange = () => {
-  setStatus(`ice: ${pc.iceConnectionState}`);
-};
+  p.onicecandidate = (evt) => {
+    if (!evt.candidate) return;
+    const payload = {
+      type: 'ICE',
+      candidate: {
+        candidate: evt.candidate.candidate,
+        sdpMid: evt.candidate.sdpMid,
+        sdpMLineIndex: evt.candidate.sdpMLineIndex,
+      },
+    };
+    sendSignal(payload);
+  };
+
+  p.onconnectionstatechange = () => {
+    const s = p.connectionState;
+    console.log('pc state', s);
+    if (s === 'connected') hideStatus();
+    else if (s === 'failed') setStatus('WebRTC connection failed');
+    else if (s === 'disconnected') setStatus('Sender disconnected');
+    else setStatus(`pc state: ${s}`);
+  };
+  p.oniceconnectionstatechange = () => {
+    setStatus(`ice: ${p.iceConnectionState}`);
+  };
+
+  return p;
+}
 
 function sendSignal(obj) {
   // With a known senderId we respond directly; before that (e.g. READY on
@@ -132,6 +162,11 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
   if (!msg || typeof msg !== 'object') return;
   try {
     if (msg.type === 'OFFER') {
+      // Tear down any previous peer — a closed or half-configured one can't
+      // process a new OFFER. This lets the receiver serve back-to-back casts
+      // without requiring a page reload.
+      closeCurrentPeer();
+      pc = createPeer();
       setStatus('OFFER received, setting remote…');
       await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
       setStatus('remote set, creating answer…');
@@ -145,6 +180,7 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
       // Trickle candidates — empty candidate string signals end-of-gather
       // from the sender. Safe to pass through addIceCandidate; Chrome ignores
       // an end-of-candidate marker.
+      if (!pc) return;
       const c = msg.candidate;
       if (c.candidate) {
         await pc.addIceCandidate({
@@ -156,7 +192,7 @@ context.addCustomMessageListener(NAMESPACE, async (evt) => {
     } else if (msg.type === 'BYE') {
       console.log('sender sent BYE');
       setStatus('Sender ended the cast');
-      try { pc.close(); } catch (_) {}
+      closeCurrentPeer();
     }
   } catch (err) {
     // Surface the failure on-screen. The try/catch used to only log to console,
