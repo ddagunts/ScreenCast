@@ -8,14 +8,36 @@ const NAMESPACE = 'urn:x-cast:io.github.ddagunts.screencast.webrtc';
 const video = document.getElementById('video');
 const statusEl = document.getElementById('status');
 
-// Dedicated <audio> element for the audio track. Keeps autoplay rules separate
-// from the <video> element (which typically needs `muted` to autoplay); an
-// <audio> in a CAF receiver context can play unmuted right away. If we tried
-// to play audio through <video>, muted fallback would silence us permanently.
-const audio = document.createElement('audio');
-audio.autoplay = true;
-audio.setAttribute('playsinline', '');
-document.body.appendChild(audio);
+// Audio is routed through Web Audio API instead of an <audio> element. The
+// HTMLMediaElement playback path is subject to higher internal buffering and
+// page-level jitter (garbage collection, rendering throttling) — symptoms
+// match the choppy audio we observed across every bitrate/resolution combo.
+// createMediaStreamSource pipes the incoming track straight into the audio
+// context's output mixer with very little buffering, and doesn't carry HTML
+// autoplay restrictions. We construct lazily on the first audio ontrack so
+// the AudioContext creation doesn't happen during page load (CAF receiver
+// contexts allow it but some browsers warm-up-cost the first context).
+let audioContext = null;
+let audioSourceNode = null;
+function routeAudioTrack(track) {
+  if (!audioContext) audioContext = new AudioContext();
+  // Every new track gets its own source node; old one is disconnected so we
+  // don't mix a stale ended-track against the live one.
+  if (audioSourceNode) {
+    try { audioSourceNode.disconnect(); } catch (_) {}
+    audioSourceNode = null;
+  }
+  const stream = new MediaStream([track]);
+  audioSourceNode = audioContext.createMediaStreamSource(stream);
+  audioSourceNode.connect(audioContext.destination);
+  // Some CAF contexts start the AudioContext suspended until user activation;
+  // receiver-context counts as "activated" but resume() is idempotent and
+  // surfaces any failure via status.
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(err =>
+      setStatus(`AudioContext.resume failed: ${err && err.name || err}`));
+  }
+}
 
 function setStatus(text) {
   if (!statusEl) return;
@@ -95,15 +117,13 @@ function createPeer() {
     const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
     setStatus(`track: ${kind} (tracks in stream: ${stream.getTracks().length})`);
     if (kind === 'audio') {
-      // Route audio to the dedicated <audio> element. autoplay on an <audio>
-      // in a CAF receiver is permitted unmuted; playing audio through a
-      // muted-autoplay <video> would silence us.
-      audio.srcObject = stream;
-      audio.muted = false;
-      audio.volume = 1.0;
-      const ap = audio.play();
-      if (ap && typeof ap.catch === 'function') {
-        ap.catch(err => setStatus(`audio.play failed: ${err && err.name || err}`));
+      // Route audio through Web Audio API, bypassing the HTMLMediaElement
+      // buffering that was producing choppy playback. routeAudioTrack
+      // (re)builds the MediaStreamSource → destination graph per track.
+      try {
+        routeAudioTrack(evt.track);
+      } catch (err) {
+        setStatus(`audio routing failed: ${err && err.name || err}`);
       }
     } else {
       // Video: stays in the fullscreen <video> element. Use muted so autoplay
