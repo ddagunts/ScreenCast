@@ -1,0 +1,140 @@
+// Android TV Remote v2 control-channel schema (port 6466 after pairing).
+//
+// On this port every TLS frame is a length-prefixed RemoteMessage. The
+// envelope holds optional submessages — at most one is set per frame and the
+// receiver dispatches on which field is populated. (The original Google
+// schema uses optional fields rather than a `oneof` so unknown future
+// additions are skipped gracefully.)
+//
+// The set of submessages defined here covers what we actually send and
+// receive. Google's schema has more (voice input, IME batch edits, Cast app
+// link) — we leave them off until we ship the corresponding feature.
+syntax = "proto3";
+
+package atv.remote;
+
+import "remotemessage_keycodes.proto";
+
+option java_package = "io.github.ddagunts.screencast.proto.atv";
+option java_outer_classname = "RemoteMessageProto";
+option java_multiple_files = true;
+
+message RemoteMessage {
+    // Sent right after the TLS handshake; identifies the sender. Without it,
+    // many TV firmwares silently drop subsequent input.
+    RemoteConfigure remote_configure = 1;
+    // Activates the channel for the role we negotiated. The constant 622 is
+    // empirically required (matches tronikos / Google Home).
+    RemoteSetActive remote_set_active = 2;
+    // TV-initiated keepalive. We must reply with RemotePingResponse echoing
+    // val1 within ~10 s or the TV closes the socket.
+    RemotePingRequest remote_ping_request = 3;
+    RemotePingResponse remote_ping_response = 4;
+    // Push from the TV: a phantom "begin / end" key event lifecycle that
+    // RemoteImeKeyInject piggybacks. Only relevant if we decide to ship the
+    // soft-keyboard relay; included so the decoder doesn't choke on it.
+    RemoteImeKeyInject remote_ime_key_inject = 5;
+    // Push from the TV: the IME wants the sender to render edit text. Same
+    // deal — included for forward compat.
+    RemoteImeBatchEdit remote_ime_batch_edit = 6;
+    // The reason the project exists: a discrete key press (or down/up/long
+    // for hold gestures). See remotemessage_keycodes.proto for codes.
+    RemoteKeyInject remote_key_inject = 7;
+    // Both directions. We send to request a level change; the TV pushes
+    // whenever the system volume changes (including from its own remote).
+    RemoteSetVolumeLevel remote_set_volume_level = 8;
+    // Optional helper if we'd rather not track absolute level. Most firmware
+    // implements both equivalently.
+    RemoteAdjustVolumeLevel remote_adjust_volume_level = 9;
+    // Cast-app-style URL launch. URI is firmware-dependent: most TVs accept
+    // `https://www.youtube.com/...` or `market://launch?id=<pkg>`.
+    RemoteAppLinkLaunchRequest remote_app_link_launch_request = 10;
+    // Push from the TV when the active app changes; we mirror it into a
+    // StateFlow so the UI can show "Now on YouTube".
+    RemoteStart remote_start = 11;
+    // Push when the TV rejects something. Logged; not fatal.
+    RemoteError remote_error = 12;
+}
+
+message RemoteConfigure {
+    int32 code1 = 1;
+    RemoteDeviceInfo device_info = 2;
+}
+
+message RemoteDeviceInfo {
+    string model = 1;
+    string vendor = 2;
+    int32 unit_id = 3;
+    string software_version = 4;
+    string app_version = 5;
+    string locale = 6;
+}
+
+message RemoteSetActive {
+    int32 active = 1;
+}
+
+message RemotePingRequest {
+    int32 val1 = 1;
+}
+
+message RemotePingResponse {
+    int32 val1 = 1;
+}
+
+message RemoteImeKeyInject {
+    RemoteTextFieldStatus text_field_status = 1;
+    RemoteImeKeyInjectAction key_event_action = 2;
+}
+
+message RemoteTextFieldStatus {
+    int32 counter = 1;
+    string value = 2;
+    int32 start = 3;
+    int32 end = 4;
+}
+
+enum RemoteImeKeyInjectAction {
+    REMOTE_IME_KEY_INJECT_ACTION_UNKNOWN = 0;
+    REMOTE_IME_KEY_INJECT_ACTION_BEGIN = 1;
+    REMOTE_IME_KEY_INJECT_ACTION_END = 2;
+}
+
+message RemoteImeBatchEdit {
+    int32 ime_counter = 1;
+    int32 field_counter = 2;
+    repeated RemoteEditInfo edit_info = 3;
+}
+
+message RemoteEditInfo {
+    int32 insert = 1;
+    string text = 2;
+}
+
+message RemoteKeyInject {
+    RemoteKeyCode key_code = 1;
+    RemoteDirection direction = 2;
+}
+
+message RemoteSetVolumeLevel {
+    string player_model = 1;
+    int32 volume_level = 2;
+    int32 volume_max = 3;
+    bool volume_muted = 4;
+}
+
+message RemoteAdjustVolumeLevel {
+    int32 amount = 1;
+}
+
+message RemoteAppLinkLaunchRequest {
+    string app_link = 1;
+}
+
+message RemoteStart {
+    bool started = 1;
+}
+
+message RemoteError {
+    string message = 1;
+}

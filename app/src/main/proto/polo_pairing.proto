@@ -1,0 +1,79 @@
+// Inner messages for the polo pairing handshake (port 6467). Each message is
+// serialized into the OuterMessage.payload bytes; OuterMessage.type tells the
+// peer which one is in there.
+syntax = "proto3";
+
+package polo.pairing;
+
+option java_package = "io.github.ddagunts.screencast.proto.polo";
+option java_outer_classname = "PoloPairing";
+option java_multiple_files = false;
+
+// MESSAGE_TYPE_PAIRING_REQUEST — first message we send. service_name is
+// hard-coded to "androidtvremote2" by every known sender; client_name is a
+// human-readable label the TV may surface during the pairing flow.
+message PairingRequest {
+    string service_name = 1;
+    string client_name = 2;
+}
+
+// MESSAGE_TYPE_PAIRING_REQUEST_ACK — TV's reply. server_name is informational
+// and we don't currently use it.
+message PairingRequestAck {
+    string server_name = 1;
+}
+
+// MESSAGE_TYPE_OPTIONS — both sides advertise what encodings they support.
+// We always advertise hexadecimal/symbol_length=6 (the 6-digit code printed
+// on the TV) for both directions and request preferred_role=INPUT (the phone
+// is the input device, the TV is the output device).
+message Options {
+    repeated Encoding input_encodings = 1;
+    repeated Encoding output_encodings = 2;
+    RoleType preferred_role = 3;
+
+    enum RoleType {
+        ROLE_TYPE_UNKNOWN = 0;
+        ROLE_TYPE_INPUT = 1;
+        ROLE_TYPE_OUTPUT = 2;
+    }
+}
+
+message Encoding {
+    EncodingType type = 1;
+    int32 symbol_length = 2;
+
+    enum EncodingType {
+        ENCODING_TYPE_UNKNOWN = 0;
+        ENCODING_TYPE_ALPHANUMERIC = 1;
+        ENCODING_TYPE_NUMERIC = 2;
+        ENCODING_TYPE_HEXADECIMAL = 3;
+        ENCODING_TYPE_QRCODE = 4;
+    }
+}
+
+// MESSAGE_TYPE_CONFIGURATION — pin down the encoding both peers will use for
+// the secret in the next step. We send hexadecimal/6 + INPUT.
+message Configuration {
+    Encoding encoding = 1;
+    Options.RoleType client_role = 2;
+}
+
+// MESSAGE_TYPE_CONFIGURATION_ACK — empty body; status comes from OuterMessage.
+message ConfigurationAck {
+}
+
+// MESSAGE_TYPE_SECRET — SHA-256(clientCert.modulus || clientCert.exponent
+// || serverCert.modulus || serverCert.exponent || nonce) where nonce is the
+// last 4 hex digits of the 6-digit code typed by the user (the leading 2
+// hex digits are a checksum we discard). See AndroidTvPairingHash.kt.
+message Secret {
+    bytes secret = 1;
+}
+
+// MESSAGE_TYPE_SECRET_ACK — server returns its independently-computed hash;
+// we cross-check it matches ours as a defense against an asymmetric
+// implementation bug, then close the pairing socket.
+message SecretAck {
+    bytes secret = 1;
+}

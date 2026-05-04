@@ -126,8 +126,18 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
 
+    // Android TV Remote v2: EncryptedFile for the per-app client cert/key
+    // (Keystore-derived AES-256-GCM master key) and DataStore-Preferences
+    // for paired-device metadata. Protobuf message types are hand-rolled
+    // in androidtv/AndroidTvProto.kt (mirror of cast/CastMessage.kt) since
+    // neither protobuf-gradle-plugin 0.9.5 nor Wire 5 currently support
+    // AGP 9's built-in Kotlin — both refuse to apply.
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.datastore.preferences)
+
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.org.json)
 }
+

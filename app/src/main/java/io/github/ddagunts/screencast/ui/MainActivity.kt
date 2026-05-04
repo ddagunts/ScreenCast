@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
 
     private val vm: CastViewModel by viewModels()
     private val webRtcVm: WebRtcViewModel by viewModels()
+    private val atvVm: AndroidTvViewModel by viewModels()
 
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -63,7 +64,7 @@ class MainActivity : ComponentActivity() {
         requestPermissionsIfNeeded()
         setContent {
             ScreenCastTheme {
-                Surface(Modifier.fillMaxSize()) { AppScaffold(vm, webRtcVm) }
+                Surface(Modifier.fillMaxSize()) { AppScaffold(vm, webRtcVm, atvVm) }
             }
         }
     }
@@ -106,7 +107,11 @@ private enum class Screen { Cast, Settings, Logs }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
+private fun AppScaffold(
+    vm: CastViewModel,
+    webRtcVm: WebRtcViewModel,
+    atvVm: AndroidTvViewModel,
+) {
     var screen by rememberSaveable { mutableStateOf(Screen.Cast) }
     val castMode by vm.castMode.collectAsStateWithLifecycle()
     Scaffold(topBar = {
@@ -140,6 +145,7 @@ private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
                     onModeChange = { vm.setCastMode(it) },
                     vm = vm,
                     webRtcVm = webRtcVm,
+                    atvVm = atvVm,
                 )
                 Screen.Settings -> SettingsScreen(vm, webRtcVm)
                 Screen.Logs -> LogPanelScreen()
@@ -149,8 +155,10 @@ private fun AppScaffold(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
 }
 
 // Single unified main screen. Mode toggle at the top, the selected mode's
-// device picker + active-session UI below. Both VMs stay alive so switching
-// modes is instant and doesn't drop in-flight discovery.
+// device picker + active-session UI below. All three VMs stay alive so
+// switching modes is instant and doesn't drop in-flight discovery — the
+// ATV discovery in particular benefits, since the TVs sometimes take a
+// few seconds to respond to the first mDNS query after boot.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CastScreenRoot(
@@ -158,6 +166,7 @@ private fun CastScreenRoot(
     onModeChange: (CastMode) -> Unit,
     vm: CastViewModel,
     webRtcVm: WebRtcViewModel,
+    atvVm: AndroidTvViewModel,
 ) {
     Column(Modifier.fillMaxSize()) {
         SingleChoiceSegmentedButtonRow(
@@ -172,13 +181,18 @@ private fun CastScreenRoot(
                     onClick = { onModeChange(mode) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
                 ) {
-                    Text(when (mode) { CastMode.HLS -> "HLS"; CastMode.WEBRTC -> "WebRTC" })
+                    Text(when (mode) {
+                        CastMode.HLS -> "HLS"
+                        CastMode.WEBRTC -> "WebRTC"
+                        CastMode.REMOTE -> "Remote"
+                    })
                 }
             }
         }
         when (castMode) {
             CastMode.HLS -> CastControlScreen(vm)
             CastMode.WEBRTC -> WebRtcCastBody(webRtcVm)
+            CastMode.REMOTE -> AndroidTvRemoteScreen(atvVm)
         }
     }
 }

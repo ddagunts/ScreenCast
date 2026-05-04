@@ -1,0 +1,62 @@
+// "Polo" is Google's internal name for the framing/handshake layer used by
+// both ports of the Android TV Remote v2 service. Every TLS frame on port 6467
+// (pairing) is a length-prefixed OuterMessage; every TLS frame on port 6466
+// (remote control) is a length-prefixed RemoteMessage from remotemessage.proto
+// instead — the wire framing is the same (varint length, then payload), the
+// payload schema differs.
+//
+// Reverse-engineered against tronikos/androidtvremote2 (Apache 2.0); the
+// numeric type codes here match what every Android TV firmware in the wild
+// expects. We use proto3 even though the original Google schema is proto2
+// because the messages always populate the fields we care about, and proto3's
+// loss of "required" is harmless on the receiver side.
+syntax = "proto3";
+
+import "polo_pairing.proto";
+
+package polo.wire;
+
+option java_package = "io.github.ddagunts.screencast.proto.polo";
+option java_outer_classname = "PoloWire";
+option java_multiple_files = false;
+
+message OuterMessage {
+    int32 protocol_version = 1;
+    Status status = 2;
+    MessageType type = 3;
+    // Inner messages live at field numbers that match their MessageType
+    // code (e.g. PAIRING_REQUEST=10 → pairing_request at field 10). The
+    // receiver dispatches on `type` and reads the matching field. There
+    // is no generic `payload` bytes field — earlier versions of this
+    // file mistakenly embedded one and the TV rejected the frame with
+    // status=ERROR, type=UNKNOWN.
+    polo.pairing.PairingRequest pairing_request = 10;
+    polo.pairing.PairingRequestAck pairing_request_ack = 11;
+    polo.pairing.Options options = 20;
+    polo.pairing.Configuration configuration = 30;
+    polo.pairing.ConfigurationAck configuration_ack = 31;
+    polo.pairing.Secret secret = 40;
+    polo.pairing.SecretAck secret_ack = 41;
+
+    enum Status {
+        STATUS_UNKNOWN = 0;
+        STATUS_OK = 200;
+        STATUS_ERROR = 400;
+        STATUS_BAD_CONFIGURATION = 401;
+        STATUS_BAD_SECRET = 402;
+    }
+
+    // Message type codes are the wire identifiers, NOT proto field tags. The
+    // payload bytes contain a serialized message from polo_pairing.proto, and
+    // this enum tells us which one.
+    enum MessageType {
+        MESSAGE_TYPE_UNKNOWN = 0;
+        MESSAGE_TYPE_PAIRING_REQUEST = 10;
+        MESSAGE_TYPE_PAIRING_REQUEST_ACK = 11;
+        MESSAGE_TYPE_OPTIONS = 20;
+        MESSAGE_TYPE_CONFIGURATION = 30;
+        MESSAGE_TYPE_CONFIGURATION_ACK = 31;
+        MESSAGE_TYPE_SECRET = 40;
+        MESSAGE_TYPE_SECRET_ACK = 41;
+    }
+}

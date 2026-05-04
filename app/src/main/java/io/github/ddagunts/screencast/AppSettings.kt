@@ -2,14 +2,21 @@ package io.github.ddagunts.screencast
 
 import android.content.Context
 
-// App-wide mode selector. The main Cast screen shows one device picker at a
-// time; this decides whether it drives the HLS pipeline (Ktor stream server +
-// the Default Media Receiver) or the WebRTC pipeline (custom receiver +
-// RTCPeerConnection). Persisted so the app opens in whichever mode was last
-// used.
+// App-wide mode selector. The main screen has a segmented control at the
+// top with one device list visible at a time, governed by this enum:
+//   * HLS — Ktor stream server + the Default Media Receiver. Casts the
+//     phone screen to a Chromecast.
+//   * WEBRTC — custom receiver + RTCPeerConnection. Same target device,
+//     low-latency path.
+//   * REMOTE — Android TV / Google TV remote control over the polo
+//     pairing + remote-v2 protocols. Different target devices than HLS
+//     and WEBRTC, but the user picks "what am I trying to do" via this
+//     same segmented control rather than juggling navigation.
+// Persisted so the app opens in whichever mode was last used.
 enum class CastMode {
     HLS,
-    WEBRTC;
+    WEBRTC,
+    REMOTE;
 
     companion object {
         val DEFAULT = HLS

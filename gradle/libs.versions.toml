@@ -16,6 +16,12 @@ junit = "4.13.2"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
 orgJson = "20240303"
+# androidx.security stores the per-app client cert + key for ATV pairing
+# behind a Keystore-derived AES-256-GCM master key.
+securityCrypto = "1.1.0-alpha06"
+# DataStore-Preferences for paired-device metadata (friendly name, model,
+# last-seen MAC). Cert material is in EncryptedFile, not here.
+datastorePreferences = "1.1.1"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -36,6 +42,8 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
