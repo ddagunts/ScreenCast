@@ -40,3 +40,12 @@
 -keepclassmembers class * implements org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback {
     *;
 }
+
+# androidx.security.crypto pulls in Tink, which references Error Prone /
+# javax.annotation compile-time-only annotations that aren't on the runtime
+# classpath. R8 fails the build with "Missing class" without these
+# `-dontwarn` lines. The annotations have no runtime semantics; nothing is
+# lost by dropping them.
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn javax.annotation.concurrent.**
