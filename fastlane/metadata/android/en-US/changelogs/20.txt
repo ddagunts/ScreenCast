@@ -1,0 +1,4 @@
+• Fix: WebRTC mode crashed on the
+  release APK (R8 minification was
+  stripping libwebrtc JNI symbols).
+  Debug APK was unaffected.
