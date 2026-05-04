@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -394,16 +395,22 @@ private fun VolumeRow(volume: AndroidTvVolume, onKey: (AndroidTvKey) -> Unit) {
 
 @Composable
 private fun MediaRow(onKey: (AndroidTvKey) -> Unit) {
+    // Six transport buttons in physical-remote order: scrub-rewind,
+    // skip-prev, play/pause, stop, skip-next, scrub-forward. Earlier
+    // version had a duplicate "Stop" entry (Pause icon mislabeled) and
+    // used SpaceEvenly which jammed the buttons against the card edges.
+    // Modifier.weight on each child plus a centered SpaceEvenly gives an
+    // even distribution that fills the card width regardless of screen.
     Card(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 8.dp, vertical = 12.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            SmallKeyButton(Icons.Filled.FastRewind, "Rewind", AndroidTvKey.MediaRewind, onKey)
             SmallKeyButton(Icons.Filled.SkipPrevious, "Previous", AndroidTvKey.MediaPrevious, onKey)
             SmallKeyButton(Icons.Filled.PlayArrow, "Play / pause", AndroidTvKey.MediaPlayPause, onKey)
-            SmallKeyButton(Icons.Filled.Pause, "Stop", AndroidTvKey.MediaStop, onKey)
-            SmallKeyButton(Icons.Filled.Stop, "Hard stop", AndroidTvKey.MediaStop, onKey)
+            SmallKeyButton(Icons.Filled.Stop, "Stop", AndroidTvKey.MediaStop, onKey)
             SmallKeyButton(Icons.Filled.SkipNext, "Next", AndroidTvKey.MediaNext, onKey)
             SmallKeyButton(Icons.Filled.FastForward, "Fast forward", AndroidTvKey.MediaFastForward, onKey)
         }

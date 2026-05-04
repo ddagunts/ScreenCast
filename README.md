@@ -1,13 +1,15 @@
 # ScreenCast
 
-An open-source Android app that casts the phone's screen to one or more Chromecast devices over the local Wi-Fi network, with synchronized playback across all connected receivers. Vibe-coded and unchecked.
+An open-source Android app that casts the phone's screen to one or more Chromecast devices over the local Wi-Fi network, with synchronized playback across all connected receivers. Also doubles as a remote control for Android TV / Google TV devices over the polo + Android TV Remote v2 protocols. Vibe-coded and unchecked.
 
 ## Screenshots
 
 <p>
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-cast-idle.png" width="240" alt="Main Cast screen with HLS/WebRTC mode toggle and discovered devices" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-cast-idle.png" width="240" alt="Main Cast screen with HLS/WebRTC/Remote mode toggle and discovered devices" />
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-settings.png" width="240" alt="Settings: resolution, segment duration, playlist window, live-edge target" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/02-settings-2.png" width="240" alt="Settings continued: sync alignment + audio capture options" />
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/03-webrtc-idle.png" width="240" alt="WebRTC mode — low-latency screen mirroring via a custom Cast receiver" />
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/04-remote-picker.png" width="240" alt="Remote mode — paired and discovered Android TV / Google TV devices" />
 </p>
 
 ## How it works
@@ -31,6 +33,16 @@ Tradeoffs versus HLS mode:
 - One Chromecast per cast (no parallel receivers).
 - No pause/play/seek, no volume UI (WebRTC has no concept of media transport).
 - The WebRTC Android library is a pre-built open-source AAR from [webrtc-sdk/android](https://github.com/webrtc-sdk/android) (BSD-3). Adds ~18 MB of native code across 4 ABIs. Building it from Chromium source ourselves is listed as a future decision in `CLAUDE.md`.
+
+## Remote control mode
+
+Switch the segmented control at the top to **Remote** to use the app as a remote for an Android TV / Google TV — the same role the Google Home app plays. No proprietary dependencies; the polo pairing handshake and the Android TV Remote v2 control channel are implemented in pure Kotlin against schemas vendored from [tronikos/androidtvremote2](https://github.com/tronikos/androidtvremote2).
+
+- **Discovery**: `NsdManager` finds TVs via mDNS (`_androidtvremote2._tcp.local`) — independent of the Chromecast discovery used by the cast modes.
+- **Pairing (one-time)**: TLS connect to port 6467, then a 6-step polo handshake (request → options → configuration → ack → secret → ack). The TV displays a 6-digit hex code on screen; you type it into the dialog on the phone. The app generates a per-install RSA-2048 client cert (no BouncyCastle — hand-rolled X.509 v3 DER) and stores it under [androidx.security `EncryptedFile`](https://developer.android.com/topic/security/data) with a Keystore-derived AES-256-GCM master key. The TV's server cert SHA-256 is pinned in app-private SharedPreferences for subsequent connections.
+- **Control channel**: mTLS to port 6466 using the paired client cert + server pin. Sends `RemoteKeyInject` for D-pad / nav / media-transport keys, replies to the TV's keepalive `RemotePingRequest` from inside the read loop, and mirrors `RemoteSetVolumeLevel` pushes into a Compose `StateFlow` so the volume readout follows physical-remote presses live.
+- **Settings shortcut**: maps to long-press Home (which on Sony BRAVIA opens the Action Menu where Settings lives), since `KEYCODE_SETTINGS` itself goes unbound on Sony firmware.
+- **Re-pair after a TV factory reset**: tap **Forget** on the row in the Remote picker, then re-pair from scratch — the TV's new server cert is pinned on the new SECRET_ACK exchange.
 
 ## Requirements
 
@@ -71,12 +83,14 @@ Then `./gradlew assembleRelease`. Without credentials `assembleRelease` still ru
 
 ```
 app/src/main/java/io/github/ddagunts/screencast/
-├── cast/     # Cast V2 protocol (discovery, TLS channel, session FSM)
-├── media/    # HLS mode: screen capture, H.264 encode, HLS muxer, Ktor server
-├── webrtc/   # WebRTC mode: PeerConnection, signaling over custom Cast namespace
-├── ui/       # Jetpack Compose UI + ViewModels (one per mode)
-└── util/     # Networking, logging
-receiver/     # WebRTC custom Cast receiver (static HTML/JS)
+├── cast/      # Cast V2 protocol (discovery, TLS channel, session FSM)
+├── media/     # HLS mode: screen capture, H.264 encode, HLS muxer, Ktor server
+├── webrtc/    # WebRTC mode: PeerConnection, signaling over custom Cast namespace
+├── androidtv/ # Remote mode: polo pairing + ATV Remote v2 control channel
+├── ui/        # Jetpack Compose UI + ViewModels (one per mode)
+└── util/      # Networking, logging
+app/src/main/proto/   # Vendored polo + remotemessage .proto schemas (spec only — codec is hand-rolled)
+receiver/             # WebRTC custom Cast receiver (static HTML/JS)
 ```
 
 ## License
