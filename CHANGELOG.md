@@ -4,6 +4,23 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0]
+
+### Fixed
+- WebRTC mode: cast no longer drops after 5 minutes. CAF (Cast Application
+  Framework) runs a separate idle watchdog that auto-closes the receiver if
+  no media has played through CAF's own media pipeline. WebRTC mode bypasses
+  CAF media entirely (RTCPeerConnection → bare `<video>`, audio through Web
+  Audio API), so CAF saw the receiver as perpetually idle and tore it down
+  at the 5-minute mark. `maxInactivity` only governed the sender-connection
+  heartbeat; the actual fix is `options.disableIdleTimeout = true`. Receiver
+  is hosted on GitHub Pages, so the fix deploys without an APK change.
+
+### Changed
+- AGP 9.2.0 → 9.2.1, Compose BOM 2026.04 → 2026.05, Coroutines 1.10.2 →
+  1.11.0, Ktor 3.4.3 → 3.5.0, Gradle wrapper 9.5.0 → 9.5.1.
+
+
 ## [0.9.0]
 
 ### Added
@@ -351,6 +368,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.10.0]: https://github.com/ddagunts/ScreenCast/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ddagunts/ScreenCast/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/ddagunts/ScreenCast/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/ddagunts/ScreenCast/compare/v0.7.2...v0.8.0

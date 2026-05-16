@@ -1,0 +1,2 @@
+• Fix: WebRTC casts no longer disconnect after 5 minutes (CAF receiver idle timeout)
+• Deps refreshed: AGP 9.2.1, Compose BOM 2026.05, Coroutines 1.11.0, Ktor 3.5.0, Gradle 9.5.1

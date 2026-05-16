@@ -75,9 +75,18 @@ if (cast.framework.LoggerLevel) {
   context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 }
 const options = new cast.framework.CastReceiverOptions();
-// We don't use the CAF media pipeline at all — the sender never sends LOAD,
-// so we disable the idle-timeout auto-shutdown. maxInactivity is in seconds;
-// 24h is a reasonable "basically forever" value for a live screen cast.
+// Two separate timers, both must be tamed for a long-lived WebRTC cast:
+//   • disableIdleTimeout — CAF auto-closes the receiver after ~5 min if no
+//     media has played through its media pipeline. We bypass CAF media
+//     entirely (video/audio go through RTCPeerConnection, not <video> via
+//     CAF), so CAF always sees the receiver as idle. Without this flag the
+//     cast drops at the 5-minute mark, no matter what maxInactivity is set
+//     to. This is the symptom users hit before this line existed.
+//   • maxInactivity — the sender heartbeat threshold. CAF will close an
+//     idle sender connection after this many seconds. Our Cast V2 channel
+//     PINGs every 5 s anyway, so this rarely matters, but a long ceiling
+//     keeps us safe if the sender stalls briefly.
+options.disableIdleTimeout = true;
 options.maxInactivity = 24 * 60 * 60;
 // Register our custom namespace. CAF refuses sendCustomMessage calls on a
 // namespace it doesn't know about, so this has to come before start().
