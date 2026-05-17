@@ -1,0 +1,1 @@
+• Fix: WebRTC audio choppiness / silence. AudioRecord now reads on a dedicated thread into a small ring buffer that decouples HAL timing from libwebrtc's 10 ms pull cadence.

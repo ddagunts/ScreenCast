@@ -4,6 +4,28 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1]
+
+### Fixed
+- WebRTC audio: chronic choppiness / total silence resolved. The previous
+  implementation polled `AudioRecord` with `READ_NON_BLOCKING` from inside
+  libwebrtc's exact-10 ms `onBuffer` callback. Because the audio HAL's
+  delivery cadence doesn't line up with libwebrtc's pull clock, the
+  non-blocking read frequently returned a short read and we tail-padded
+  the frame with silence — the user-visible result was a constant stream
+  of 10 ms silence frames interleaved with audio. Replaced with a producer-
+  consumer model: a dedicated `WebRtcAudioCapture-reader` thread does
+  blocking `AudioRecord.read`s into a 5-slot ring (~50 ms slack), and
+  `onBuffer` pops one chunk per call without ever stalling libwebrtc's
+  audio thread. Drop-oldest on ring full (HAL ahead), zero-fill on ring
+  empty (true underrun). New diagnostic log line every ~2 s reports
+  `calls / underruns / drops / ringDepth` so future regressions are
+  visible in the Logs panel.
+- Defensive check after `AudioRecord.startRecording()`: if the state
+  doesn't transition to `RECORDSTATE_RECORDING`, surface a warning
+  instead of silently streaming zeros forever.
+
+
 ## [0.10.0]
 
 ### Fixed
@@ -368,6 +390,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.10.1]: https://github.com/ddagunts/ScreenCast/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ddagunts/ScreenCast/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ddagunts/ScreenCast/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/ddagunts/ScreenCast/compare/v0.8.0...v0.8.1
