@@ -52,4 +52,8 @@ enum class AndroidTvKey(val wire: RemoteKeyCode) {
     Captions(RemoteKeyCode.CAPTIONS),
     AudioTrack(RemoteKeyCode.MEDIA_AUDIO_TRACK),
     TvInput(RemoteKeyCode.TV_INPUT),
+
+    // Soft-keyboard "Done"/"Submit". Used by the IME bottom sheet's Enter
+    // button so e.g. a YouTube search field commits after we inject text.
+    Enter(RemoteKeyCode.ENTER),
 }

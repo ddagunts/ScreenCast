@@ -132,6 +132,146 @@ class AndroidTvProtoTest {
         assertTrue(back is RemoteMessage.KeyInject)
     }
 
+    @Test fun `RemoteImeObject roundtrip preserves span and value`() {
+        val obj = RemoteImeObject(start = 3, end = 7, value = "world")
+        val back = RemoteImeObject.decode(obj.encode())
+        assertEquals(obj, back)
+    }
+
+    @Test fun `RemoteImeObject encodes default zeros and empty string as empty bytes`() {
+        // proto3 default semantics: 0/empty fields are omitted. A "clear
+        // from start" (start=0, end=0, value="") therefore must round-trip
+        // through an empty buffer without losing information.
+        val obj = RemoteImeObject(start = 0, end = 0, value = "")
+        val bytes = obj.encode()
+        assertEquals(0, bytes.size)
+        val back = RemoteImeObject.decode(bytes)
+        assertEquals(obj, back)
+    }
+
+    @Test fun `RemoteEditInfo roundtrip preserves nested ImeObject`() {
+        val info = RemoteEditInfo(insert = 1, textFieldStatus = RemoteImeObject(0, 0, "hi"))
+        val back = RemoteEditInfo.decode(info.encode())
+        assertEquals(info, back)
+    }
+
+    @Test fun `RemoteTextFieldStatus roundtrip preserves all fields`() {
+        val status = RemoteTextFieldStatus(
+            counterField = 7,
+            value = "abc",
+            start = 1,
+            end = 2,
+            int5 = 3,
+            label = "Search",
+        )
+        val back = RemoteTextFieldStatus.decode(status.encode())
+        assertEquals(status, back)
+    }
+
+    @Test fun `RemoteMessage ImeBatchEdit roundtrip with one edit`() {
+        val msg = RemoteMessage.ImeBatchEdit(
+            imeCounter = 5,
+            fieldCounter = 11,
+            editInfo = listOf(RemoteEditInfo(1, RemoteImeObject(0, 0, "hello"))),
+        )
+        val back = RemoteMessage.decode(msg.encode())
+        assertTrue("expected ImeBatchEdit, got ${back::class.simpleName}",
+            back is RemoteMessage.ImeBatchEdit)
+        back as RemoteMessage.ImeBatchEdit
+        assertEquals(5, back.imeCounter)
+        assertEquals(11, back.fieldCounter)
+        assertEquals(1, back.editInfo.size)
+        assertEquals(RemoteEditInfo(1, RemoteImeObject(0, 0, "hello")), back.editInfo[0])
+    }
+
+    @Test fun `RemoteMessage ImeBatchEdit roundtrip with multiple edits`() {
+        // The wire allows multiple RemoteEditInfo entries; we only send
+        // one in practice but the decoder must handle whatever the TV
+        // echoes back.
+        val msg = RemoteMessage.ImeBatchEdit(
+            imeCounter = 1,
+            fieldCounter = 2,
+            editInfo = listOf(
+                RemoteEditInfo(1, RemoteImeObject(0, 0, "a")),
+                RemoteEditInfo(1, RemoteImeObject(1, 1, "b")),
+            ),
+        )
+        val back = RemoteMessage.decode(msg.encode()) as RemoteMessage.ImeBatchEdit
+        assertEquals(2, back.editInfo.size)
+        assertEquals(RemoteImeObject(0, 0, "a"), back.editInfo[0].textFieldStatus)
+        assertEquals(RemoteImeObject(1, 1, "b"), back.editInfo[1].textFieldStatus)
+    }
+
+    @Test fun `RemoteMessage ImeKeyInject decodes app package and text field state`() {
+        // Build the message by hand using the public helper writers so
+        // the test is verifying the field-number contract, not the
+        // (also-tested) encode/decode pair. Tag bytes go through
+        // writeVarint because field 20's tag (162) overflows a single byte.
+        val app = ByteArrayOutputStream().apply {
+            // counter field 1 = varint 0 (omitted), label field 10 = "lbl",
+            // app_package field 12 = "com.example".
+            write(((10 shl 3) or 2)); writeVarint(this, "lbl".length.toLong()); write("lbl".toByteArray())
+            write(((12 shl 3) or 2)); writeVarint(this, "com.example".length.toLong()); write("com.example".toByteArray())
+        }.toByteArray()
+        val status = RemoteTextFieldStatus(
+            counterField = 4, value = "hi", start = 2, end = 2, label = "Search",
+        ).encode()
+        val inner = ByteArrayOutputStream().apply {
+            write(((1 shl 3) or 2)); writeVarint(this, app.size.toLong()); write(app)
+            write(((2 shl 3) or 2)); writeVarint(this, status.size.toLong()); write(status)
+        }.toByteArray()
+        val outer = ByteArrayOutputStream().apply {
+            writeVarint(this, ((20 shl 3) or 2).toLong())
+            writeVarint(this, inner.size.toLong())
+            write(inner)
+        }.toByteArray()
+        val msg = RemoteMessage.decode(outer)
+        assertTrue("expected ImeKeyInject, got ${msg::class.simpleName}",
+            msg is RemoteMessage.ImeKeyInject)
+        msg as RemoteMessage.ImeKeyInject
+        assertEquals("com.example", msg.appInfo.appPackage)
+        assertEquals("lbl", msg.appInfo.label)
+        assertEquals("hi", msg.textFieldStatus.value)
+        assertEquals(4, msg.textFieldStatus.counterField)
+        assertEquals("Search", msg.textFieldStatus.label)
+    }
+
+    @Test fun `RemoteMessage ImeShowRequest decodes text field state at field 2`() {
+        // ImeShowRequest only has text_field_status, and it's at field 2
+        // (not 1) per canonical schema — a regression here would point
+        // at a field-number mismatch.
+        val status = RemoteTextFieldStatus(counterField = 9, value = "x").encode()
+        val inner = ByteArrayOutputStream().apply {
+            write(((2 shl 3) or 2)); writeVarint(this, status.size.toLong()); write(status)
+        }.toByteArray()
+        val outer = ByteArrayOutputStream().apply {
+            // Field 22's tag (178) overflows a single byte; must writeVarint.
+            writeVarint(this, ((22 shl 3) or 2).toLong())
+            writeVarint(this, inner.size.toLong())
+            write(inner)
+        }.toByteArray()
+        val msg = RemoteMessage.decode(outer)
+        assertTrue(msg is RemoteMessage.ImeShowRequest)
+        msg as RemoteMessage.ImeShowRequest
+        assertEquals(9, msg.textFieldStatus.counterField)
+        assertEquals("x", msg.textFieldStatus.value)
+    }
+
+    @Test fun `RemoteMessage ImeBatchEdit is at envelope field 21`() {
+        // Sanity check: the canonical wire location is field 21.
+        // Encode and look for the tag (21 << 3) | 2 = 170 = 0xAA 0x01 as
+        // varint — multi-byte because 170 > 127.
+        val bytes = RemoteMessage.ImeBatchEdit(
+            imeCounter = 1, fieldCounter = 1,
+            editInfo = listOf(RemoteEditInfo(1, RemoteImeObject(0, 0, "a"))),
+        ).encode()
+        // Tag varint for field 21 wire 2: 170 -> 0xAA, 0x01.
+        assertTrue(
+            "encoded ImeBatchEdit must start with tag 0xAA 0x01",
+            bytes.size >= 2 && bytes[0] == 0xAA.toByte() && bytes[1] == 0x01.toByte(),
+        )
+    }
+
     private fun encodeUnknownVarintField(field: Int, value: Long): ByteArray {
         val out = ByteArrayOutputStream()
         writeVarint(out, ((field shl 3).toLong()))

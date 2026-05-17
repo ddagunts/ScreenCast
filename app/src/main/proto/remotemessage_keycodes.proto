@@ -24,6 +24,11 @@ enum RemoteKeyCode {
     KEYCODE_DPAD_LEFT = 21;
     KEYCODE_DPAD_RIGHT = 22;
     KEYCODE_DPAD_CENTER = 23;
+    // ENTER (66) is what soft keyboards emit on "Done"/"Submit". Some TVs
+    // also accept DPAD_CENTER for confirming text input, but ENTER is the
+    // keycode the on-screen IME normally fires for IME_ACTION_DONE — so
+    // the IME bottom sheet's submit button uses this.
+    KEYCODE_ENTER = 66;
     KEYCODE_VOLUME_UP = 24;
     KEYCODE_VOLUME_DOWN = 25;
     KEYCODE_POWER = 26;

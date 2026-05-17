@@ -347,6 +347,10 @@ enum class RemoteKeyCode(val wire: Int) {
     SOFT_LEFT(1), SOFT_RIGHT(2), HOME(3), BACK(4),
     DPAD_UP(19), DPAD_DOWN(20), DPAD_LEFT(21), DPAD_RIGHT(22), DPAD_CENTER(23),
     VOLUME_UP(24), VOLUME_DOWN(25), POWER(26),
+    // Soft-keyboard "Done"/"Submit". Used by the IME bottom sheet's Enter
+    // button so that e.g. a YouTube search field commits after the phone
+    // has injected text into it.
+    ENTER(66),
     MENU(82), NOTIFICATION(83), SEARCH(84),
     MEDIA_PLAY_PAUSE(85), MEDIA_STOP(86), MEDIA_NEXT(87), MEDIA_PREVIOUS(88),
     MEDIA_REWIND(89), MEDIA_FAST_FORWARD(90),
@@ -368,6 +372,122 @@ enum class RemoteDirection(val wire: Int) {
     UNKNOWN(0), START_LONG(1), END_LONG(2), SHORT(3);
     companion object {
         fun fromWire(v: Int): RemoteDirection = values().firstOrNull { it.wire == v } ?: UNKNOWN
+    }
+}
+
+// Span replacement: replace text in the field from `start` (inclusive) to
+// `end` (exclusive) with `value`. `start == end` is a pure insert at that
+// position; an empty `value` is a pure delete; otherwise a replace. The
+// phone computes one of these per RemoteImeBatchEdit by diffing the user's
+// new phone text against the TV's last-known text.
+data class RemoteImeObject(val start: Int, val end: Int, val value: String) {
+    fun encode(): ByteArray = ByteArrayOutputStream().apply {
+        if (start != 0) writeVarintField(1, start.toLong())
+        if (end != 0) writeVarintField(2, end.toLong())
+        if (value.isNotEmpty()) writeStringField(3, value)
+    }.toByteArray()
+
+    companion object {
+        fun decode(bytes: ByteArray): RemoteImeObject {
+            var start = 0; var end = 0; var value = ""
+            forEachField(bytes) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 0 -> { val (v, n) = readVarint(src, off); start = v.toInt(); n }
+                    field == 2 && wire == 0 -> { val (v, n) = readVarint(src, off); end = v.toInt(); n }
+                    field == 3 && wire == 2 -> { val (s, n) = readString(src, off); value = s; n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return RemoteImeObject(start, end, value)
+        }
+    }
+}
+
+// A single edit operation inside a RemoteImeBatchEdit. `insert` is always 1
+// in practice — the wild firmware doesn't interpret other op codes. The
+// span semantics live entirely inside `textFieldStatus` (RemoteImeObject).
+data class RemoteEditInfo(val insert: Int, val textFieldStatus: RemoteImeObject) {
+    fun encode(): ByteArray = ByteArrayOutputStream().apply {
+        if (insert != 0) writeVarintField(1, insert.toLong())
+        writeBytesField(2, textFieldStatus.encode())
+    }.toByteArray()
+
+    companion object {
+        fun decode(bytes: ByteArray): RemoteEditInfo {
+            var insert = 0; var obj = RemoteImeObject(0, 0, "")
+            forEachField(bytes) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 0 -> { val (v, n) = readVarint(src, off); insert = v.toInt(); n }
+                    field == 2 && wire == 2 -> { val (b, n) = readBytes(src, off); obj = RemoteImeObject.decode(b); n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return RemoteEditInfo(insert, obj)
+        }
+    }
+}
+
+// State of one focusable text field on the TV. Pushed inside
+// RemoteImeKeyInject (and RemoteImeShowRequest) every time the field gains
+// focus or its content changes. `counterField` is the per-field sequence
+// number we must echo back as RemoteImeBatchEdit.fieldCounter.
+data class RemoteTextFieldStatus(
+    val counterField: Int = 0,
+    val value: String = "",
+    val start: Int = 0,
+    val end: Int = 0,
+    val int5: Int = 0,
+    val label: String = "",
+) {
+    fun encode(): ByteArray = ByteArrayOutputStream().apply {
+        if (counterField != 0) writeVarintField(1, counterField.toLong())
+        if (value.isNotEmpty()) writeStringField(2, value)
+        if (start != 0) writeVarintField(3, start.toLong())
+        if (end != 0) writeVarintField(4, end.toLong())
+        if (int5 != 0) writeVarintField(5, int5.toLong())
+        if (label.isNotEmpty()) writeStringField(6, label)
+    }.toByteArray()
+
+    companion object {
+        fun decode(bytes: ByteArray): RemoteTextFieldStatus {
+            var c = 0; var v = ""; var s = 0; var e = 0; var i5 = 0; var lbl = ""
+            forEachField(bytes) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 0 -> { val (x, n) = readVarint(src, off); c = x.toInt(); n }
+                    field == 2 && wire == 2 -> { val (x, n) = readString(src, off); v = x; n }
+                    field == 3 && wire == 0 -> { val (x, n) = readVarint(src, off); s = x.toInt(); n }
+                    field == 4 && wire == 0 -> { val (x, n) = readVarint(src, off); e = x.toInt(); n }
+                    field == 5 && wire == 0 -> { val (x, n) = readVarint(src, off); i5 = x.toInt(); n }
+                    field == 6 && wire == 2 -> { val (x, n) = readString(src, off); lbl = x; n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return RemoteTextFieldStatus(c, v, s, e, i5, lbl)
+        }
+    }
+}
+
+// Subset of canonical RemoteAppInfo — we only consume `appPackage` (for
+// the UI label) and ignore the firmware-internal counter / flag fields.
+// Encoder is empty because the phone never sends this; it only decodes.
+data class RemoteAppInfo(
+    val counter: Int = 0,
+    val label: String = "",
+    val appPackage: String = "",
+) {
+    companion object {
+        fun decode(bytes: ByteArray): RemoteAppInfo {
+            var c = 0; var lbl = ""; var pkg = ""
+            forEachField(bytes) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 0 -> { val (v, n) = readVarint(src, off); c = v.toInt(); n }
+                    field == 10 && wire == 2 -> { val (s, n) = readString(src, off); lbl = s; n }
+                    field == 12 && wire == 2 -> { val (s, n) = readString(src, off); pkg = s; n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return RemoteAppInfo(c, lbl, pkg)
+        }
     }
 }
 
@@ -445,6 +565,47 @@ sealed class RemoteMessage {
             }.toByteArray()
             return wrap(FIELD_KEY_INJECT, inner)
         }
+    }
+
+    // Inbound-only in practice — pushed by the TV when a text field
+    // gains/changes focus. The phone's session layer pivots on this to
+    // (a) auto-open the IME bottom sheet, (b) update the latest
+    // counterField for subsequent ImeBatchEdit sends, (c) refresh the
+    // mirrored text the user is editing on the phone. We never construct
+    // this from the phone side; `encode()` panics if invoked.
+    data class ImeKeyInject(
+        val appInfo: RemoteAppInfo,
+        val textFieldStatus: RemoteTextFieldStatus,
+    ) : RemoteMessage() {
+        override fun encode(): ByteArray = error("ImeKeyInject is read-only")
+    }
+
+    // Bidirectional. The phone sends this to apply edits; the TV echoes
+    // back with updated counters (which the session tracks so the next
+    // outbound send carries the right sequence numbers). Each edit is one
+    // RemoteEditInfo carrying a span replacement.
+    data class ImeBatchEdit(
+        val imeCounter: Int,
+        val fieldCounter: Int,
+        val editInfo: List<RemoteEditInfo>,
+    ) : RemoteMessage() {
+        override fun encode(): ByteArray {
+            val inner = ByteArrayOutputStream().apply {
+                if (imeCounter != 0) writeVarintField(1, imeCounter.toLong())
+                if (fieldCounter != 0) writeVarintField(2, fieldCounter.toLong())
+                for (e in editInfo) writeBytesField(3, e.encode())
+            }.toByteArray()
+            return wrap(FIELD_IME_BATCH_EDIT, inner)
+        }
+    }
+
+    // Inbound-only. The TV asks us to surface a keyboard. Treated as a
+    // synonym for "auto-open the bottom sheet" — many firmwares only send
+    // this *or* ImeKeyInject, not both, so we react to either.
+    data class ImeShowRequest(
+        val textFieldStatus: RemoteTextFieldStatus,
+    ) : RemoteMessage() {
+        override fun encode(): ByteArray = error("ImeShowRequest is read-only")
     }
 
     // Canonical schema: player_model at field 3, volume_max at field 6,
@@ -528,6 +689,8 @@ sealed class RemoteMessage {
         const val FIELD_PING_RESPONSE = 9
         const val FIELD_KEY_INJECT = 10
         const val FIELD_IME_KEY_INJECT = 20
+        const val FIELD_IME_BATCH_EDIT = 21
+        const val FIELD_IME_SHOW_REQUEST = 22
         const val FIELD_START = 40
         const val FIELD_SET_VOLUME_LEVEL = 50
         const val FIELD_ADJUST_VOLUME_LEVEL = 51
@@ -551,6 +714,9 @@ sealed class RemoteMessage {
                         FIELD_PING_REQUEST -> decodePingRequest(inner)
                         FIELD_PING_RESPONSE -> decodePingResponse(inner)
                         FIELD_KEY_INJECT -> decodeKeyInject(inner)
+                        FIELD_IME_KEY_INJECT -> decodeImeKeyInject(inner)
+                        FIELD_IME_BATCH_EDIT -> decodeImeBatchEdit(inner)
+                        FIELD_IME_SHOW_REQUEST -> decodeImeShowRequest(inner)
                         FIELD_SET_VOLUME_LEVEL -> decodeSetVolumeLevel(inner)
                         FIELD_ADJUST_VOLUME_LEVEL -> decodeAdjustVolumeLevel(inner)
                         FIELD_APP_LINK_LAUNCH -> decodeAppLink(inner)
@@ -637,6 +803,44 @@ sealed class RemoteMessage {
                 }
             }
             return KeyInject(code, dir)
+        }
+
+        private fun decodeImeKeyInject(b: ByteArray): ImeKeyInject {
+            var app = RemoteAppInfo()
+            var status = RemoteTextFieldStatus()
+            forEachField(b) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 2 -> { val (bb, n) = readBytes(src, off); app = RemoteAppInfo.decode(bb); n }
+                    field == 2 && wire == 2 -> { val (bb, n) = readBytes(src, off); status = RemoteTextFieldStatus.decode(bb); n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return ImeKeyInject(app, status)
+        }
+
+        private fun decodeImeBatchEdit(b: ByteArray): ImeBatchEdit {
+            var imeCounter = 0; var fieldCounter = 0
+            val edits = mutableListOf<RemoteEditInfo>()
+            forEachField(b) { field, wire, src, off ->
+                when {
+                    field == 1 && wire == 0 -> { val (v, n) = readVarint(src, off); imeCounter = v.toInt(); n }
+                    field == 2 && wire == 0 -> { val (v, n) = readVarint(src, off); fieldCounter = v.toInt(); n }
+                    field == 3 && wire == 2 -> { val (bb, n) = readBytes(src, off); edits += RemoteEditInfo.decode(bb); n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return ImeBatchEdit(imeCounter, fieldCounter, edits)
+        }
+
+        private fun decodeImeShowRequest(b: ByteArray): ImeShowRequest {
+            var status = RemoteTextFieldStatus()
+            forEachField(b) { field, wire, src, off ->
+                when {
+                    field == 2 && wire == 2 -> { val (bb, n) = readBytes(src, off); status = RemoteTextFieldStatus.decode(bb); n }
+                    else -> skipField(src, off, wire)
+                }
+            }
+            return ImeShowRequest(status)
         }
 
         private fun decodeSetVolumeLevel(b: ByteArray): SetVolumeLevel {

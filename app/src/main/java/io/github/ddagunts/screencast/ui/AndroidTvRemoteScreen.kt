@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
@@ -82,6 +83,7 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
     val state by vm.currentState.collectAsStateWithLifecycle()
     val volume by vm.currentVolume.collectAsStateWithLifecycle()
     val prompt by vm.pairingPrompt.collectAsStateWithLifecycle()
+    val imePrompt by vm.currentImePrompt.collectAsStateWithLifecycle()
 
     if (currentHost == null) {
         DevicePicker(
@@ -111,6 +113,7 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
             onSetVolume = { vm.setVolume(it) },
             onConnect = { vm.connectCurrent() },
             onLongPress = { key -> vm.longPress(key) },
+            onOpenKeyboard = { vm.openImePrompt() },
         )
     }
 
@@ -119,6 +122,15 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
             deviceName = it.device.name,
             onSubmit = { code -> vm.submitPairingCode(code) },
             onDismiss = { vm.cancelPairing() },
+        )
+    }
+
+    imePrompt?.let { p ->
+        AndroidTvImeSheet(
+            prompt = p,
+            onTextChange = { vm.sendImeText(it) },
+            onEnter = { vm.sendImeEnter() },
+            onDismiss = { vm.closeImePrompt() },
         )
     }
 }
@@ -217,6 +229,7 @@ private fun RemoteScreenBody(
     onSetVolume: (Float) -> Unit,
     onConnect: () -> Unit,
     onLongPress: (AndroidTvKey) -> Unit,
+    onOpenKeyboard: () -> Unit,
 ) {
     Column(
         Modifier
@@ -229,7 +242,7 @@ private fun RemoteScreenBody(
 
         DPad(onKey = onKey)
 
-        NavRow(onKey = onKey, onLongPress = onLongPress)
+        NavRow(onKey = onKey, onLongPress = onLongPress, onOpenKeyboard = onOpenKeyboard)
 
         VolumeRow(volume = volume, onKey = onKey)
 
@@ -340,6 +353,7 @@ private fun DPadButton(
 private fun NavRow(
     onKey: (AndroidTvKey) -> Unit,
     onLongPress: (AndroidTvKey) -> Unit,
+    onOpenKeyboard: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth(),
@@ -356,6 +370,14 @@ private fun NavRow(
         // gesture the physical Sony remote uses.
         FilledTonalIconButton(onClick = { onLongPress(AndroidTvKey.Home) }) {
             Icon(Icons.Filled.Settings, contentDescription = "Settings (long-press Home)")
+        }
+        // Manual keyboard trigger. The sheet also auto-opens when the TV
+        // pushes ImeKeyInject/ImeShowRequest, but firmwares sometimes
+        // drop those (especially on first focus into a field) — this
+        // button lets the user force-open against whatever field is
+        // already focused.
+        FilledTonalIconButton(onClick = onOpenKeyboard) {
+            Icon(Icons.Filled.Keyboard, contentDescription = "Show keyboard")
         }
         SmallKeyButton(Icons.Filled.Power, "Power", AndroidTvKey.Power, onKey)
     }

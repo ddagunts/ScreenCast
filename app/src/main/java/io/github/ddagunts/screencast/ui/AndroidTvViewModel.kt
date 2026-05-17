@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ddagunts.screencast.androidtv.AndroidTvCertStore
 import io.github.ddagunts.screencast.androidtv.AndroidTvDevice
 import io.github.ddagunts.screencast.androidtv.AndroidTvDiscovery
+import io.github.ddagunts.screencast.androidtv.AndroidTvImePrompt
 import io.github.ddagunts.screencast.androidtv.AndroidTvKey
 import io.github.ddagunts.screencast.androidtv.AndroidTvPersistence
 import io.github.ddagunts.screencast.androidtv.AndroidTvRemote
@@ -43,6 +44,9 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
     private val _currentVolume = MutableStateFlow(AndroidTvVolume())
     val currentVolume: StateFlow<AndroidTvVolume> = _currentVolume
 
+    private val _currentImePrompt = MutableStateFlow<AndroidTvImePrompt?>(null)
+    val currentImePrompt: StateFlow<AndroidTvImePrompt?> = _currentImePrompt
+
     // Pairing UI plumbing: when a pair() runs it'll set this prompt, the
     // dialog observes it and resumes the deferred when the user submits.
     // Using a single in-flight prompt is safe — we only ever start one
@@ -63,6 +67,9 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             remote.volume.collect { _currentVolume.value = it }
+        }
+        viewModelScope.launch {
+            remote.imePrompt.collect { _currentImePrompt.value = it }
         }
         if (remote.isPaired) {
             viewModelScope.launch {
@@ -168,6 +175,32 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
     fun launchApp(uri: String) {
         val host = _currentHost.value ?: return
         launchSafe("launchApp($uri)") { remotes[host]?.launchApp(uri) }
+    }
+
+    fun sendImeText(text: String) {
+        val host = _currentHost.value ?: return
+        launchSafe("sendImeText") { remotes[host]?.sendImeText(text) }
+    }
+
+    fun sendImeEnter() {
+        val host = _currentHost.value ?: return
+        launchSafe("sendImeEnter") { remotes[host]?.sendImeEnter() }
+    }
+
+    // Manual "show keyboard" trigger from the UI when there is no
+    // TV-pushed prompt yet. Synthesises an empty prompt so the sheet can
+    // open; sendImeText against that will start by inserting at position 0.
+    fun openImePrompt() {
+        val host = _currentHost.value ?: return
+        remotes[host]?.openImePrompt()
+    }
+
+    // Dismiss the bottom sheet locally without touching the TV. The TV
+    // doesn't need to know we hid the sheet — it'll re-push ImeKeyInject
+    // the next time focus changes.
+    fun closeImePrompt() {
+        val host = _currentHost.value ?: return
+        remotes[host]?.closeImePrompt()
     }
 
     private fun remoteFor(device: AndroidTvDevice): AndroidTvRemote =

@@ -4,6 +4,40 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0]
+
+### Added
+- **Phone-side keyboard for the Remote tab.** Typing into a TV text field
+  (YouTube search, login forms, etc.) no longer requires D-padding across
+  the on-screen keyboard. A Material 3 bottom sheet auto-opens the moment
+  the TV pushes `RemoteImeKeyInject` / `RemoteImeShowRequest` (i.e. when a
+  text field gains focus on the TV) and closes when the user dismisses it.
+  A manual keyboard button on the remote nav row force-opens the sheet
+  against whatever field is already focused, for firmwares that drop the
+  initial focus push.
+  - Wire format: `RemoteImeBatchEdit` (envelope field 21) carrying one
+    `RemoteEditInfo` per keystroke, with monotonic `ime_counter` +
+    per-field `field_counter` echoed back from the TV. The phone diffs the
+    new text against the TV's last-known value with an O(min(len))
+    common-prefix / common-suffix shrink and emits one span replacement
+    per send. Send is debounced 50 ms so a burst of fast typing collapses
+    into one edit per pause. An Enter button injects `KEYCODE_ENTER` so
+    e.g. a YouTube search submits.
+  - Optimistic local update of the mirrored TV text after every send, so
+    subsequent diffs are against the just-sent state instead of the
+    original — keeps the wire payload to one minimal span per keystroke
+    regardless of typing speed.
+  - Sheet is pre-populated from the TV's reported field value + selection
+    so editing-an-existing-string works without a redundant clear.
+
+### Changed
+- `RemoteKeyCode` enum gains `ENTER` (66) for the IME Enter button. Hand-
+  rolled proto codec gains decoders for `RemoteImeKeyInject`,
+  `RemoteImeBatchEdit`, `RemoteImeShowRequest`, plus their nested
+  `RemoteImeObject` / `RemoteEditInfo` / `RemoteTextFieldStatus` /
+  `RemoteAppInfo`.
+
+
 ## [0.10.2]
 
 ### Fixed
@@ -406,6 +440,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.11.0]: https://github.com/ddagunts/ScreenCast/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/ddagunts/ScreenCast/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/ddagunts/ScreenCast/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ddagunts/ScreenCast/compare/v0.9.0...v0.10.0

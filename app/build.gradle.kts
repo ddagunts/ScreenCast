@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.ddagunts.screencast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "0.10.2"
+        versionCode = 24
+        versionName = "0.11.0"
     }
 
     signingConfigs {

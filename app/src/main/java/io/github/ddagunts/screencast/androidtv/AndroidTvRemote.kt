@@ -44,6 +44,9 @@ class AndroidTvRemote(
     private val _volume = MutableStateFlow(AndroidTvVolume())
     val volume: StateFlow<AndroidTvVolume> = _volume
 
+    private val _imePrompt = MutableStateFlow<AndroidTvImePrompt?>(null)
+    val imePrompt: StateFlow<AndroidTvImePrompt?> = _imePrompt
+
     @Volatile private var session: AndroidTvSession? = null
     private var pipeScope: CoroutineScope? = null
 
@@ -92,6 +95,7 @@ class AndroidTvRemote(
             pipeScope = scope
             scope.launch { newSession.state.collect { _state.value = it } }
             scope.launch { newSession.volume.collect { _volume.value = it } }
+            scope.launch { newSession.imePrompt.collect { _imePrompt.value = it } }
         }
         s.connect()
         logI("AndroidTvRemote.connect() returned, session state = ${s.state.value}")
@@ -120,4 +124,8 @@ class AndroidTvRemote(
     suspend fun setVolume(level: Float) { session?.setVolume(level) }
     suspend fun setMuted(muted: Boolean) { session?.setMuted(muted) }
     suspend fun launchApp(uri: String) { session?.launchApp(uri) }
+    suspend fun sendImeText(newText: String) { session?.sendImeText(newText) }
+    suspend fun sendImeEnter() { session?.sendImeEnter() }
+    fun openImePrompt() { session?.openImePrompt() }
+    fun closeImePrompt() { session?.closeImePrompt() }
 }

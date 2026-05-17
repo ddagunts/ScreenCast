@@ -1,0 +1,1 @@
+• New: phone keyboard for the Remote tab. Typing into TV text fields (YouTube search, login forms) auto-opens a bottom sheet on the phone — no more D-padding across the on-screen keyboard. Diff-based per-keystroke sync over the Android TV Remote v2 IME channel.
