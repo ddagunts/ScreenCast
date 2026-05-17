@@ -77,13 +77,23 @@ class AndroidTvSession(
     private val _volume = MutableStateFlow(AndroidTvVolume())
     val volume: StateFlow<AndroidTvVolume> = _volume
 
-    // Latest IME prompt pushed by the TV, or null when no text field is
-    // (known to be) focused. Updated from ImeKeyInject / ImeShowRequest in
-    // observeIncoming, plus by openImePrompt()/closeImePrompt() for manual
-    // toggle. The phone's last-known TV text lives in `value`; the diff
-    // for the next ImeBatchEdit is computed against that.
+    // What the phone's IME bottom sheet is currently editing. Non-null
+    // iff the sheet should be visible. Only ever set by openImePrompt() /
+    // closeImePrompt() / sendImeText() (the last optimistically tracks
+    // what we just sent so the next diff is computed against it). TV
+    // pushes intentionally DO NOT mutate this — auto-opening the sheet
+    // every time the TV reports a focused text field was overwhelming,
+    // so the sheet is now manual-only.
     private val _imePrompt = MutableStateFlow<AndroidTvImePrompt?>(null)
     val imePrompt: StateFlow<AndroidTvImePrompt?> = _imePrompt
+
+    // The TV's last-known focused text field (value, selection, app, label
+    // counters). Updated continuously from ImeKeyInject / ImeShowRequest
+    // pushes. Used to seed _imePrompt when the user manually opens the
+    // sheet, so they start editing what's actually on the TV instead of a
+    // blank field. @Volatile because writes happen from observeIncoming
+    // and reads happen from the UI thread via openImePrompt().
+    @Volatile private var lastTvField: AndroidTvImePrompt? = null
 
     // Sequence counters echoed in every outbound ImeBatchEdit. `imeCounter`
     // increments per phone-originated edit, monotonically across the
@@ -207,12 +217,13 @@ class AndroidTvSession(
         }
     }
 
-    // TV announced a text-field state. Update the per-field counter, then
-    // either populate or refresh _imePrompt so the bottom sheet can open.
+    // TV announced a text-field state. Update the per-field counter and
+    // cache the field so a subsequent openImePrompt() can pre-populate.
+    // Does NOT touch _imePrompt — the sheet is manual-only.
     private fun handleImeKeyInject(msg: RemoteMessage.ImeKeyInject) {
         val status = msg.textFieldStatus
         if (status.counterField != 0) fieldCounter = status.counterField
-        _imePrompt.value = AndroidTvImePrompt(
+        lastTvField = AndroidTvImePrompt(
             appPackage = msg.appInfo.appPackage,
             appLabel = msg.appInfo.label,
             label = status.label,
@@ -226,9 +237,9 @@ class AndroidTvSession(
         val status = msg.textFieldStatus
         if (status.counterField != 0) fieldCounter = status.counterField
         // ImeShowRequest arrives without app_info — preserve whatever
-        // ImeKeyInject most recently told us, falling back to empty.
-        val existing = _imePrompt.value
-        _imePrompt.value = AndroidTvImePrompt(
+        // ImeKeyInject most recently cached.
+        val existing = lastTvField
+        lastTvField = AndroidTvImePrompt(
             appPackage = existing?.appPackage ?: "",
             appLabel = existing?.appLabel ?: "",
             label = status.label.ifEmpty { existing?.label ?: "" },
@@ -258,6 +269,7 @@ class AndroidTvSession(
         // IME state belongs to the connection — drop it so the next
         // connect doesn't replay a stale prompt against a fresh session.
         _imePrompt.value = null
+        lastTvField = null
         imeCounter = 0
         fieldCounter = 0
     }
@@ -319,8 +331,13 @@ class AndroidTvSession(
     suspend fun sendImeText(newText: String) {
         val ch = channel ?: return logW("sendImeText: not connected")
         val prompt = _imePrompt.value ?: return logW("sendImeText: no active IME prompt")
-        val diff = computeImeDiff(prompt.value, newText) ?: return
+        val diff = computeImeDiff(prompt.value, newText)
+        if (diff == null) {
+            logI("sendImeText: no diff (prompt.value=${prompt.value.length}ch, newText=${newText.length}ch)")
+            return
+        }
         imeCounter += 1
+        logI("sendImeText: prompt.value=\"${prompt.value}\" newText=\"$newText\" → diff [${diff.start}..${diff.end})=\"${diff.value}\" imeCtr=$imeCounter fieldCtr=$fieldCounter")
         ch.send(RemoteMessage.ImeBatchEdit(
             imeCounter = imeCounter,
             fieldCounter = fieldCounter,
@@ -342,14 +359,14 @@ class AndroidTvSession(
     // generic "click" focus dispatcher).
     suspend fun sendImeEnter() = sendKey(AndroidTvKey.Enter)
 
-    // UI hook: user tapped the manual "keyboard" button without a TV-side
-    // push having arrived. Synthesises an empty prompt so the bottom sheet
-    // can appear; the first character the user types will diff against ""
-    // and send as an insert at position 0 — which is correct iff the TV
-    // currently has an empty text field focused.
+    // UI hook: user tapped the manual "keyboard" button. Seeds the sheet
+    // from the TV's last-known focused field if we have one cached (so the
+    // user starts editing what's actually on the TV); otherwise opens an
+    // empty prompt and the first character will insert at position 0 —
+    // correct iff the TV has an empty text field focused.
     fun openImePrompt() {
         if (_imePrompt.value != null) return
-        _imePrompt.value = AndroidTvImePrompt(
+        _imePrompt.value = lastTvField ?: AndroidTvImePrompt(
             appPackage = "",
             appLabel = "",
             label = "",

@@ -12,7 +12,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.util.logE
 import io.github.ddagunts.screencast.util.logI
@@ -111,7 +110,7 @@ class WebRtcForegroundService : Service() {
         // (UI disables the controls while casting); the next startCast
         // picks up any changes.
         val cfg = io.github.ddagunts.screencast.webrtc.WebRtcConfigStore(this).snapshot()
-        val s = WebRtcCastSession(this, device, CastCertPinStore(this), cfg)
+        val s = WebRtcCastSession(this, device, cfg)
         session = s
         sessionJob = scope.launch {
             // Observe state and mirror to the global flow so the UI can see it.

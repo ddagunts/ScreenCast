@@ -8,7 +8,6 @@ import io.github.ddagunts.screencast.AppSettingsStore
 import io.github.ddagunts.screencast.CastForegroundService
 import io.github.ddagunts.screencast.CastMode
 import io.github.ddagunts.screencast.MediaProjectionRequestActivity
-import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastDiscovery
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,22 +46,6 @@ class CastViewModel(app: Application) : AndroidViewModel(app) {
     fun setCastMode(mode: CastMode) {
         _castMode.value = mode
         appSettings.castMode = mode
-    }
-
-    // Hosts with a pinned TLS fingerprint. Only mutated by the VM on explicit
-    // forget; new pins made during an active cast's handshake won't appear
-    // here until refreshPairedHosts() is called (e.g. on Settings reentry).
-    private val pinStore = CastCertPinStore(app)
-    private val _pairedHosts = MutableStateFlow(pinStore.pinnedHosts())
-    val pairedHosts: StateFlow<Set<String>> = _pairedHosts
-
-    fun refreshPairedHosts() {
-        _pairedHosts.value = pinStore.pinnedHosts()
-    }
-
-    fun forgetPairedHost(host: String) {
-        pinStore.forget(host)
-        _pairedHosts.value = pinStore.pinnedHosts()
     }
 
     private fun updateConfig(transform: (StreamConfig) -> StreamConfig) {

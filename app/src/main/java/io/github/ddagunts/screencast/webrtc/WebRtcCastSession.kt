@@ -3,7 +3,6 @@ package io.github.ddagunts.screencast.webrtc
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
-import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastChannel
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastMessage
@@ -53,10 +52,9 @@ sealed class WebRtcState {
 class WebRtcCastSession(
     private val context: Context,
     val device: CastDevice,
-    pinStore: CastCertPinStore? = null,
     private val sessionConfig: WebRtcSessionConfig,
 ) {
-    private val channel = CastChannel(device.host, device.port, pinStore)
+    private val channel = CastChannel(device.host, device.port)
     private val _state = MutableStateFlow<WebRtcState>(WebRtcState.Idle)
     val state: StateFlow<WebRtcState> = _state
 

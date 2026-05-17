@@ -14,7 +14,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import io.github.ddagunts.screencast.cast.CastCertPinStore
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastSession
 import io.github.ddagunts.screencast.cast.CastState
@@ -432,7 +431,7 @@ class CastForegroundService : Service() {
                 }
             }
 
-            val s = CastSession(dev, CastCertPinStore(this@CastForegroundService))
+            val s = CastSession(dev)
             sessions[host] = s
             // child jobs — cancelled when the parent (sessionJobs[host]) is cancelled
             launch {

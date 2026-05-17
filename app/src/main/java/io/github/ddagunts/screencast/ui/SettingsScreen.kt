@@ -25,10 +25,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,17 +45,12 @@ import kotlin.math.roundToInt
 fun SettingsScreen(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
     val cfg by vm.streamConfig.collectAsStateWithLifecycle()
     val activeCasts by vm.activeCasts.collectAsStateWithLifecycle()
-    val pairedHosts by vm.pairedHosts.collectAsStateWithLifecycle()
     val webRtcSession by webRtcVm.session.collectAsStateWithLifecycle()
     val webRtcAppId by webRtcVm.appId.collectAsStateWithLifecycle()
     val webRtcPreset by webRtcVm.videoPreset.collectAsStateWithLifecycle()
     val webRtcBitrate by webRtcVm.maxBitrateMbps.collectAsStateWithLifecycle()
     val webRtcAudio by webRtcVm.audioEnabled.collectAsStateWithLifecycle()
     val webRtcCasting = webRtcSession != null
-    // Pins can be added from CastChannel.verifyPin() during any active
-    // handshake, which happens off this screen. Re-read on entry so newly
-    // TOFU'd hosts show up without waiting for the next app restart.
-    LaunchedEffect(Unit) { vm.refreshPairedHosts() }
     // Stream config is shared across every active session, so we can only
     // edit it when *no* casts are live. A change mid-cast would invalidate
     // the running encoder's segmenter settings for all receivers at once.
@@ -182,40 +175,6 @@ fun SettingsScreen(vm: CastViewModel, webRtcVm: WebRtcViewModel) {
                 format = { "$it ms" },
                 onSelect = { vm.setSyncDriftMs(it) },
             )
-        }
-
-        SettingCard("Paired devices") {
-            if (pairedHosts.isEmpty()) {
-                Text(
-                    "No Chromecasts paired yet. First successful connection pins the device certificate; forget a host here to re-pair after a device swap or factory reset.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    "Forgetting a host clears its pinned TLS fingerprint. The next connection re-pins whatever certificate the device presents.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                val sorted = pairedHosts.sorted()
-                sorted.forEachIndexed { idx, host ->
-                    if (idx > 0) HorizontalDivider()
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    ) {
-                        Text(
-                            host,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { vm.forgetPairedHost(host) }) {
-                            Text("Forget")
-                        }
-                    }
-                }
-            }
         }
 
         SettingCard("Stream summary") {

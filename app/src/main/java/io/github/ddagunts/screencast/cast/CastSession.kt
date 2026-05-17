@@ -32,8 +32,8 @@ data class CastVolume(
     val isFixed: Boolean get() = controlType.equals("fixed", ignoreCase = true)
 }
 
-class CastSession(val device: CastDevice, pinStore: CastCertPinStore? = null) {
-    private val channel = CastChannel(device.host, device.port, pinStore)
+class CastSession(val device: CastDevice) {
+    private val channel = CastChannel(device.host, device.port)
     private val _state = MutableStateFlow<CastState>(CastState.Idle)
     val state: StateFlow<CastState> = _state
 

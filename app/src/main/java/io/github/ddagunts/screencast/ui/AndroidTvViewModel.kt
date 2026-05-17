@@ -14,6 +14,7 @@ import io.github.ddagunts.screencast.androidtv.AndroidTvState
 import io.github.ddagunts.screencast.androidtv.AndroidTvVolume
 import io.github.ddagunts.screencast.util.logE
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -47,6 +48,11 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
     private val _currentImePrompt = MutableStateFlow<AndroidTvImePrompt?>(null)
     val currentImePrompt: StateFlow<AndroidTvImePrompt?> = _currentImePrompt
 
+    // Cancelled and replaced on every selectDevice() so collectors from a
+    // prior device don't keep writing into _currentState/_currentVolume/
+    // _currentImePrompt and race the new device's flows.
+    private var currentJobs: Job? = null
+
     // Pairing UI plumbing: when a pair() runs it'll set this prompt, the
     // dialog observes it and resumes the deferred when the user submits.
     // Using a single in-flight prompt is safe — we only ever start one
@@ -60,21 +66,24 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
     val pairingPrompt: StateFlow<PairingPrompt?> = _prompt
 
     fun selectDevice(device: AndroidTvDevice) {
+        currentJobs?.cancel()
         _currentHost.value = device.host
         val remote = remoteFor(device)
-        viewModelScope.launch {
-            remote.state.collect { _currentState.value = it }
-        }
-        viewModelScope.launch {
-            remote.volume.collect { _currentVolume.value = it }
-        }
-        viewModelScope.launch {
-            remote.imePrompt.collect { _currentImePrompt.value = it }
-        }
-        if (remote.isPaired) {
-            viewModelScope.launch {
-                runCatching { remote.connect() }
-                    .onFailure { logE("connect failed for ${device.host}", it) }
+        // Seed the surfaced fields from the remote's current values so the
+        // UI sees the right state immediately, before the new collectors
+        // have a chance to emit.
+        _currentState.value = remote.state.value
+        _currentVolume.value = remote.volume.value
+        _currentImePrompt.value = remote.imePrompt.value
+        currentJobs = viewModelScope.launch {
+            launch { remote.state.collect { _currentState.value = it } }
+            launch { remote.volume.collect { _currentVolume.value = it } }
+            launch { remote.imePrompt.collect { _currentImePrompt.value = it } }
+            if (remote.isPaired) {
+                launch {
+                    runCatching { remote.connect() }
+                        .onFailure { logE("connect failed for ${device.host}", it) }
+                }
             }
         }
     }
@@ -134,6 +143,20 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
     fun disconnectCurrent() {
         val host = _currentHost.value ?: return
         remotes[host]?.disconnect()
+    }
+
+    // Navigate back to the picker without touching the TV connection. The
+    // remote stays alive in `remotes` so re-selecting the same device skips
+    // the handshake. Cancels the collectors so stale flows from this remote
+    // stop writing into the surfaced fields, then clears them so the next
+    // selectDevice() doesn't briefly render the prior device's state.
+    fun leaveCurrent() {
+        currentJobs?.cancel()
+        currentJobs = null
+        _currentHost.value = null
+        _currentState.value = AndroidTvState.Idle
+        _currentVolume.value = AndroidTvVolume()
+        _currentImePrompt.value = null
     }
 
     // Every UI-triggered remote action gets its own try/catch so a
