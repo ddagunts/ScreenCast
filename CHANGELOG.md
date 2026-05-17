@@ -4,6 +4,22 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2]
+
+### Fixed
+- WebRTC audio: receiver played video but no audio. Tracked down to the
+  receiver's audio routing path: `audioContext.createMediaStreamSource(stream)`
+  on a WebRTC remote track is a long-standing Chrome bug where the source
+  node attaches but produces no output. The previous 0.10.1 sender-side
+  rewrite confirmed the sender was healthy (`underruns=0` in the diag log),
+  so the silence had to be downstream. Reverted to the pre-0.8.0 receiver
+  pattern: both remote tracks (video + audio) are collected into a single
+  `MediaStream` and assigned to `video.srcObject`; HTMLMediaElement handles
+  audio output reliably on the Chromecast. Removed the Web Audio API
+  routing entirely. Receiver-only change, deploys via GitHub Pages — no
+  APK code touched.
+
+
 ## [0.10.1]
 
 ### Fixed
@@ -390,6 +406,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.10.2]: https://github.com/ddagunts/ScreenCast/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/ddagunts/ScreenCast/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/ddagunts/ScreenCast/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/ddagunts/ScreenCast/compare/v0.8.1...v0.9.0

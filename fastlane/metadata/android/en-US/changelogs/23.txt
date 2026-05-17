@@ -1,0 +1,1 @@
+• Fix: WebRTC receiver had no audio. The Chrome Web Audio path was silently dropping the remote audio track; routed audio + video through a single MediaStream on the <video> element instead.

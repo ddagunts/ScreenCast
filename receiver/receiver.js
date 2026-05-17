@@ -8,37 +8,6 @@ const NAMESPACE = 'urn:x-cast:io.github.ddagunts.screencast.webrtc';
 const video = document.getElementById('video');
 const statusEl = document.getElementById('status');
 
-// Audio is routed through Web Audio API instead of an <audio> element. The
-// HTMLMediaElement playback path is subject to higher internal buffering and
-// page-level jitter (garbage collection, rendering throttling) — symptoms
-// match the choppy audio we observed across every bitrate/resolution combo.
-// createMediaStreamSource pipes the incoming track straight into the audio
-// context's output mixer with very little buffering, and doesn't carry HTML
-// autoplay restrictions. We construct lazily on the first audio ontrack so
-// the AudioContext creation doesn't happen during page load (CAF receiver
-// contexts allow it but some browsers warm-up-cost the first context).
-let audioContext = null;
-let audioSourceNode = null;
-function routeAudioTrack(track) {
-  if (!audioContext) audioContext = new AudioContext();
-  // Every new track gets its own source node; old one is disconnected so we
-  // don't mix a stale ended-track against the live one.
-  if (audioSourceNode) {
-    try { audioSourceNode.disconnect(); } catch (_) {}
-    audioSourceNode = null;
-  }
-  const stream = new MediaStream([track]);
-  audioSourceNode = audioContext.createMediaStreamSource(stream);
-  audioSourceNode.connect(audioContext.destination);
-  // Some CAF contexts start the AudioContext suspended until user activation;
-  // receiver-context counts as "activated" but resume() is idempotent and
-  // surfaces any failure via status.
-  if (audioContext.state === 'suspended') {
-    audioContext.resume().catch(err =>
-      setStatus(`AudioContext.resume failed: ${err && err.name || err}`));
-  }
-}
-
 function setStatus(text) {
   if (!statusEl) return;
   statusEl.textContent = text;
@@ -120,29 +89,33 @@ function createPeer() {
   // are enough; no STUN round-trip, no TURN relays.
   const p = new RTCPeerConnection({ iceServers: [] });
 
+  // Both remote tracks (video, audio) land in a single MediaStream wired to
+  // the fullscreen <video> element. Two reasons not to split them:
+  //   1. The sender uses distinct stream IDs (screen-video / screen-audio),
+  //      so each ontrack fires with its own evt.streams[0]. We have to
+  //      compose them on this side either way.
+  //   2. Routing audio via Web Audio's createMediaStreamSource() is a
+  //      long-standing Chrome bug for WebRTC remote tracks — the source
+  //      node attaches but produces no output. HTMLMediaElement is the
+  //      reliable path; the <video> element already plays the video, so
+  //      adding the audio track to the same stream gives us audio for
+  //      free, no second element needed.
+  // We do NOT set video.muted = true. Chromecast's CAF receiver is a
+  // trusted context that permits unmuted autoplay, and Chrome's autoplay
+  // policy has been observed to commit to a muted state if set on load,
+  // silently reverting later video.muted = false. See the receiver
+  // index.html comment for the matching note on the HTML side.
+  const remoteStream = new MediaStream();
+  video.srcObject = remoteStream;
+
   p.ontrack = (evt) => {
     const kind = evt.track && evt.track.kind || '?';
-    console.log('ontrack', kind, evt.streams && evt.streams[0]);
-    const stream = (evt.streams && evt.streams[0]) || new MediaStream([evt.track]);
-    setStatus(`track: ${kind} (tracks in stream: ${stream.getTracks().length})`);
-    if (kind === 'audio') {
-      // Route audio through Web Audio API, bypassing the HTMLMediaElement
-      // buffering that was producing choppy playback. routeAudioTrack
-      // (re)builds the MediaStreamSource → destination graph per track.
-      try {
-        routeAudioTrack(evt.track);
-      } catch (err) {
-        setStatus(`audio routing failed: ${err && err.name || err}`);
-      }
-    } else {
-      // Video: stays in the fullscreen <video> element. Use muted so autoplay
-      // always goes through; the <audio> element is carrying the actual sound.
-      video.srcObject = stream;
-      video.muted = true;
-      const vp = video.play();
-      if (vp && typeof vp.catch === 'function') {
-        vp.catch(err => setStatus(`video.play failed: ${err && err.name || err}`));
-      }
+    console.log('ontrack', kind);
+    remoteStream.addTrack(evt.track);
+    setStatus(`track: ${kind} (tracks: ${remoteStream.getTracks().length})`);
+    const vp = video.play();
+    if (vp && typeof vp.catch === 'function') {
+      vp.catch(err => setStatus(`video.play failed: ${err && err.name || err}`));
     }
   };
 
