@@ -205,6 +205,11 @@ class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
         launchSafe("sendImeText") { remotes[host]?.sendImeText(text) }
     }
 
+    fun sendImeBackspace() {
+        val host = _currentHost.value ?: return
+        launchSafe("sendImeBackspace") { remotes[host]?.sendImeBackspace() }
+    }
+
     fun sendImeEnter() {
         val host = _currentHost.value ?: return
         launchSafe("sendImeEnter") { remotes[host]?.sendImeEnter() }

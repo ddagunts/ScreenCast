@@ -129,6 +129,7 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
         AndroidTvImeSheet(
             prompt = p,
             onTextChange = { vm.sendImeText(it) },
+            onBackspace = { vm.sendImeBackspace() },
             onEnter = { vm.sendImeEnter() },
             onDismiss = { vm.closeImePrompt() },
         )
@@ -396,13 +397,17 @@ private fun VolumeRow(volume: AndroidTvVolume, onKey: (AndroidTvKey) -> Unit) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.size(8.dp))
-            // Show the TV's reported level uniformly. On HDMI-ARC the TV
-            // delegates output to the AVR and reports max=0; the level
-            // itself is still meaningful (it's the TV's intended volume),
-            // so we drop just the "/max" suffix when max isn't known.
-            val label = "Volume ${volume.level}" +
-                (if (volume.max > 0) "/${volume.max}" else "") +
-                (if (volume.muted) " (muted)" else "")
+            // On HDMI-ARC the TV delegates output to the AVR and stops
+            // pushing SetVolumeLevel entirely (verified on the wire — both
+            // level and max stay 0 across volume key presses). The Android
+            // TV Remote protocol has no query RPC, so there's no way to
+            // read the AVR's level. Drop the numbers in that case rather
+            // than show a misleading "0".
+            val label = if (volume.max > 0) {
+                "Volume ${volume.level}/${volume.max}" + if (volume.muted) " (muted)" else ""
+            } else {
+                "Volume" + if (volume.muted) " (muted)" else ""
+            }
             Text(label, modifier = Modifier.weight(1f))
             FilledTonalIconButton(onClick = { onKey(AndroidTvKey.VolumeDown) }) {
                 Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = "Volume down")

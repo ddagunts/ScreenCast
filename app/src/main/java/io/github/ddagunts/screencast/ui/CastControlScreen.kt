@@ -44,10 +44,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -270,15 +273,46 @@ private fun StatusChip(castState: String, playerState: String) {
         }
         else -> "Idle" to MaterialTheme.colorScheme.outline
     }
+    // Hold each transition long enough to actually read. Without this,
+    // CASTING ↔ BUFFERING bounces (a stream stall that resolves in
+    // <100 ms) flicker by faster than the eye can track.
+    val (heldLabel, heldDotColor) = rememberMinHoldValue(label to dotColor, 600L)
     AssistChip(
         onClick = {},
         enabled = false,
-        leadingIcon = { StatusDot(dotColor) },
-        label = { Text(label) },
+        leadingIcon = { StatusDot(heldDotColor) },
+        label = { Text(heldLabel) },
         colors = AssistChipDefaults.assistChipColors(
             disabledLabelColor = MaterialTheme.colorScheme.onSurface,
         ),
     )
+}
+
+// Returns `target`, but guarantees that any transition stays visible for at
+// least `minHoldMs` before the next one is applied. A new target arriving
+// during the hold period is queued and applied when the hold elapses; if
+// the target changes multiple times during a single hold, only the final
+// value is shown next — intermediate flickers collapse. Suited to status
+// labels where the user needs to read the current state, not to data
+// streams where every intermediate value matters.
+@Composable
+private fun <T> rememberMinHoldValue(target: T, minHoldMs: Long): T {
+    val currentTarget = rememberUpdatedState(target)
+    var displayed by remember { mutableStateOf(target) }
+    var nextSwapAt by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { currentTarget.value }.collect { incoming ->
+            if (incoming == displayed) return@collect
+            val now = System.currentTimeMillis()
+            if (now < nextSwapAt) delay(nextSwapAt - now)
+            // Re-read after the delay — target may have advanced again
+            // while we were sleeping. We commit whatever's current now,
+            // so the user always sees the latest state once the hold ends.
+            displayed = currentTarget.value
+            nextSwapAt = System.currentTimeMillis() + minHoldMs
+        }
+    }
+    return displayed
 }
 
 @Composable

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,38 +41,47 @@ import androidx.compose.ui.unit.dp
 import io.github.ddagunts.screencast.androidtv.AndroidTvImePrompt
 import kotlinx.coroutines.delay
 
-// Live-typing bottom sheet for sending text to a TV text field.
+// Phone-side keyboard buffer. The user types here; every change is fed
+// back to the session as the new full-buffer string. The session computes
+// the diff against what it last sent and emits one RemoteImeBatchEdit
+// span replacement that, applied to the TV's view, yields the new
+// buffer. Counters ride on every frame and are echo-driven (the canonical
+// Android-TV-Remote-v2 mechanism, see AndroidTvSession.sendImeText).
 //
-// Behaviour (matches the user's chosen design):
-//   * Auto-shown by the caller whenever the session's imePrompt is non-null.
-//     A manual "keyboard" button on the remote screen synthesises an empty
-//     prompt to force-open this sheet against an unfocused field.
-//   * Pre-populated from the TV's last-known field state, cursor at the
-//     TV's reported selection. The phone session does the diffing — this
-//     composable just emits the raw new text on every keystroke.
-//   * Per-keystroke send with a 50 ms debounce. We use LaunchedEffect keyed
-//     on the local text: every keystroke cancels the previous effect and
-//     starts a fresh delay, so a burst of fast typing collapses into one
-//     send per pause.
-//   * Explicit "Enter" button sends KEYCODE_ENTER (the soft-keyboard's
-//     IME_ACTION_DONE) so that e.g. a YouTube search submits.
-//   * Close = dismiss locally; we don't tell the TV to defocus, because
-//     there is no such message and the TV will simply re-push ImeKeyInject
-//     the next time focus changes anyway.
+// Design notes:
+//   * Pre-populated from the TV's last-known field value so the user
+//     starts editing what's actually on the TV (search query, etc.).
+//   * 50 ms debounce: each new value cancels the previous send and
+//     starts a fresh delay, so a burst of fast typing collapses into
+//     one ImeBatchEdit per pause. Without this, multiple sends go out
+//     before the TV's first counter echo arrives — they'd all carry
+//     stale counters and the TV silently drops them. Matches what the
+//     canonical Python library effectively gets via its async send_text
+//     usage pattern.
+//   * Explicit Backspace button as a fallback for IMEs that swallow the
+//     hardware/soft backspace at end-of-buffer (some carrier IMEs do).
+//     Wired through sendImeBackspace which emits an empty-value span
+//     replacement of the trailing char — same wire mechanism as the
+//     debounced text path, so the diff base stays consistent.
+//   * Enter button + IME_ACTION_DONE both send KEYCODE_ENTER (via the
+//     plain key-inject path) so search fields commit the query.
+//   * Close = dismiss locally. There's no protocol message to tell the
+//     TV "the user closed the keyboard"; the TV will re-push its IME
+//     state on the next focus change anyway.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AndroidTvImeSheet(
     prompt: AndroidTvImePrompt,
     onTextChange: (String) -> Unit,
+    onBackspace: () -> Unit,
     onEnter: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // Seed once per sheet-open. We deliberately do NOT re-seed when
-    // `prompt.value` updates after we've sent edits, because the session
-    // optimistically updates prompt.value to mirror what we just sent; if
-    // we re-seeded on every prompt change the cursor would jump to the
-    // TV's reported position mid-typing.
+    // Seed once. We deliberately do NOT re-seed when `prompt.value`
+    // updates after the user has started typing — the session is the
+    // authority on what the TV has, so re-seeding from a stale push
+    // would clobber the user's typing.
     var tfv by remember {
         val sel = prompt.selectionStart.coerceIn(0, prompt.value.length)
         val selEnd = prompt.selectionEnd.coerceIn(sel, prompt.value.length)
@@ -80,14 +90,14 @@ fun AndroidTvImeSheet(
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
-    // Debounced live send. The `if` skips re-sending after our own
-    // optimistic update has already aligned prompt.value with tfv.text —
-    // without it, the next keystroke would still queue a redundant edit.
+    // Debounced live send. Every keystroke cancels the previous launch
+    // and starts a new 50 ms delay, so a burst of fast typing collapses
+    // into one send per pause. The session deduplicates against its own
+    // lastSentText, so an initial-frame call with the seed value is a
+    // harmless no-op.
     LaunchedEffect(tfv.text) {
-        if (tfv.text != prompt.value) {
-            delay(50)
-            onTextChange(tfv.text)
-        }
+        delay(50)
+        onTextChange(tfv.text)
     }
 
     ModalBottomSheet(
@@ -105,7 +115,7 @@ fun AndroidTvImeSheet(
             ImeSheetHeader(prompt = prompt, onDismiss = onDismiss)
             OutlinedTextField(
                 value = tfv,
-                onValueChange = { tfv = it },
+                onValueChange = { next -> tfv = next },
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
@@ -113,7 +123,7 @@ fun AndroidTvImeSheet(
                 label = if (prompt.label.isNotEmpty()) {
                     { Text(prompt.label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 } else null,
-                placeholder = { Text("Type here, sends as you type") },
+                placeholder = { Text("Type — each character is sent as a key press") },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Done,
@@ -124,10 +134,26 @@ fun AndroidTvImeSheet(
             )
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilledTonalButton(onClick = onEnter) {
+                FilledTonalButton(onClick = {
+                    // Optimistically drop the trailing char on our side
+                    // so the TextField shows the deletion immediately;
+                    // the session will emit the matching KEYCODE_DEL.
+                    val text = tfv.text
+                    if (text.isNotEmpty()) {
+                        val dropped = text.dropLast(1)
+                        tfv = TextFieldValue(dropped, TextRange(dropped.length))
+                    }
+                    onBackspace()
+                }) {
+                    Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Backspace")
+                }
+                Spacer(Modifier.size(0.dp))
+                FilledTonalButton(onClick = onEnter, modifier = Modifier) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardReturn, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text("Enter")

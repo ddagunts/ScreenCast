@@ -345,12 +345,45 @@ data class SecretAck(val secret: ByteArray) {
 enum class RemoteKeyCode(val wire: Int) {
     UNKNOWN(0),
     SOFT_LEFT(1), SOFT_RIGHT(2), HOME(3), BACK(4),
+
+    // Typing keys. Numeric values are android.view.KeyEvent.KEYCODE_*
+    // unchanged. Kept for completeness even though text entry now goes
+    // through RemoteImeBatchEdit (see sendImeText): the TV's input
+    // dispatcher silently drops letter keycodes injected over this
+    // channel, so the per-character "Bluetooth keyboard" approach we
+    // briefly tried did not work in practice. These codes stay defined
+    // because a future feature (e.g. arrow keys for cursor navigation)
+    // might want raw keycode access without going through AndroidTvKey.
+    KEY_0(7), KEY_1(8), KEY_2(9), KEY_3(10), KEY_4(11),
+    KEY_5(12), KEY_6(13), KEY_7(14), KEY_8(15), KEY_9(16),
+    STAR(17), POUND(18),
+
     DPAD_UP(19), DPAD_DOWN(20), DPAD_LEFT(21), DPAD_RIGHT(22), DPAD_CENTER(23),
     VOLUME_UP(24), VOLUME_DOWN(25), POWER(26),
+
+    KEY_A(29), KEY_B(30), KEY_C(31), KEY_D(32), KEY_E(33),
+    KEY_F(34), KEY_G(35), KEY_H(36), KEY_I(37), KEY_J(38),
+    KEY_K(39), KEY_L(40), KEY_M(41), KEY_N(42), KEY_O(43),
+    KEY_P(44), KEY_Q(45), KEY_R(46), KEY_S(47), KEY_T(48),
+    KEY_U(49), KEY_V(50), KEY_W(51), KEY_X(52), KEY_Y(53), KEY_Z(54),
+    COMMA(55), PERIOD(56),
+    ALT_LEFT(57), ALT_RIGHT(58),
+    SHIFT_LEFT(59), SHIFT_RIGHT(60),
+    TAB(61), SPACE(62),
+
     // Soft-keyboard "Done"/"Submit". Used by the IME bottom sheet's Enter
     // button so that e.g. a YouTube search field commits after the phone
     // has injected text into it.
     ENTER(66),
+    // Backspace. The name matches Android's KEYCODE_DEL (which is
+    // unfortunately the *backspace* key — KEYCODE_FORWARD_DEL is the
+    // forward-delete). Used to remove characters when the IME sheet's
+    // diff sees the user shortened the buffer.
+    DEL(67),
+    GRAVE(68), MINUS(69), EQUALS(70),
+    LEFT_BRACKET(71), RIGHT_BRACKET(72), BACKSLASH(73),
+    SEMICOLON(74), APOSTROPHE(75), SLASH(76), AT(77),
+    PLUS(81),
     MENU(82), NOTIFICATION(83), SEARCH(84),
     MEDIA_PLAY_PAUSE(85), MEDIA_STOP(86), MEDIA_NEXT(87), MEDIA_PREVIOUS(88),
     MEDIA_REWIND(89), MEDIA_FAST_FORWARD(90),

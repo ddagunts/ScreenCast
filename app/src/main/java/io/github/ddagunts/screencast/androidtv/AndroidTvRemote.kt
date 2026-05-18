@@ -125,6 +125,7 @@ class AndroidTvRemote(
     suspend fun setMuted(muted: Boolean) { session?.setMuted(muted) }
     suspend fun launchApp(uri: String) { session?.launchApp(uri) }
     suspend fun sendImeText(newText: String) { session?.sendImeText(newText) }
+    suspend fun sendImeBackspace() { session?.sendImeBackspace() }
     suspend fun sendImeEnter() { session?.sendImeEnter() }
     fun openImePrompt() { session?.openImePrompt() }
     fun closeImePrompt() { session?.closeImePrompt() }
