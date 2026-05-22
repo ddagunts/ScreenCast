@@ -42,12 +42,14 @@ import io.github.ddagunts.screencast.androidtv.AndroidTvImePrompt
 import kotlinx.coroutines.delay
 
 // Phone-side keyboard buffer. The user types here; every change is fed
-// back to the session as the new full-buffer string. The session wraps
-// that into one RemoteImeBatchEdit per canonical androidtvremote2
-// `send_text` shape (value=full buffer, start=end=len-1) — the TV reads
-// it as "set the focused field to this text" and applies its own diff.
-// Counters ride on every frame and are echo-driven (see
-// AndroidTvSession.sendImeText).
+// back to the session as the new full-buffer string. The session sends
+// one RemoteImeBatchEdit that span-replaces the entire previous TV
+// field content with the new buffer (start=0, end=prevTvText.length,
+// value=newText). The canonical androidtvremote2 `start=end=len-1`
+// shape is *not* used — the wild firmware reads it as a literal span
+// insert and progressive sends compound ("h" → "hhe" → "hhhele"). See
+// AndroidTvSession.sendImeText. Counters ride on every frame and are
+// echo-driven.
 //
 // Design notes:
 //   * Pre-populated from the TV's last-known field value so the user

@@ -128,6 +128,18 @@ class AndroidTvSession(
     @Volatile private var imeCounter: Int = 0
     @Volatile private var fieldCounter: Int = 0
 
+    // Mirror of the TV's focused-field content as last pushed by us. Used
+    // as the `end` of the span the next ImeBatchEdit overwrites — we
+    // send `start=0, end=prevTvText.length, value=newText` so the entire
+    // previous content is replaced. Tracking this locally is required
+    // because the canonical Python `start=end=len-1` shape is interpreted
+    // by the wild firmware as a *literal* span insert at position len-1,
+    // not as a full-field replacement, so each progressive keystroke
+    // compounds ("h" → "hhe" → "hhhele"). Initialized from the TV's
+    // last-known field value when the user opens the IME sheet and
+    // updated after every successful send.
+    @Volatile private var prevTvText: String = ""
+
     // Connect runs the blocking TLS handshake + the polo handshake messages,
     // so we always switch to Dispatchers.IO. Without this, callers on the
     // Main dispatcher (the ViewModel coroutines) would either freeze or
@@ -385,6 +397,7 @@ class AndroidTvSession(
         lastTvField = null
         imeCounter = 0
         fieldCounter = 0
+        prevTvText = ""
     }
 
     suspend fun sendKey(key: AndroidTvKey, direction: RemoteDirection = RemoteDirection.SHORT) {
@@ -433,39 +446,43 @@ class AndroidTvSession(
     }
 
     // Push the phone-side full text buffer to the TV as one
-    // RemoteImeBatchEdit. Matches canonical androidtvremote2 (Python)
-    // `send_text` exactly: `value` is the FULL buffer, `start == end ==
-    // len(value) - 1`. This is NOT a span replacement in the usual sense —
-    // the wild firmware reads it as "set the field's full value to `value`
-    // with cursor at len-1" and diffs against its own previous state. An
-    // earlier diff-based shape (insert/delete only the changed slice) was
-    // silently dropped by the TV: the IME sheet would open with the right
-    // app focused but no letters ever appeared.
+    // RemoteImeBatchEdit, span-replacing the entire previous content
+    // (`start=0, end=prevTvText.length, value=newText`).
+    //
+    // Why not the canonical Python `start=end=len(newText)-1` shape?
+    // That shape is documented as "set field to value with cursor at
+    // len-1" but the wild firmware actually interprets it as a literal
+    // span insert at position len-1, so progressive sends compound:
+    //   send "h" into "":  insert at 0 → "h"          ✓
+    //   send "he" into "h": insert at 1 → "h"+"he" = "hhe"  ✗
+    //   send "hel" into "hhe": insert at 2 → "hh"+"hel"+"e" = "hhhele" ✗
+    // A full-range replacement [0..prev.length] unambiguously rewrites
+    // the field on this firmware. Canonical Python gets away with the
+    // len-1 shape because it's intended as a one-shot send into an
+    // empty field; our progressive on-screen-keyboard usage breaks it.
     //
     // Counters: both ime_counter and field_counter ride on every frame.
     // Per canonical Python, neither is ever bumped by the sender — they
     // ratchet up via TV echoes only and stay at 0 until the first echo.
     //
-    // No-op on empty input: canonical Python raises on empty, and an
-    // encoded `start=-1` would land as a huge varint on the wire. The
-    // sheet's Backspace button mutates its own TextFieldValue down to
-    // empty and we just stop sending when there's nothing to mirror;
-    // the TV keeps whatever single char it has until the user types
-    // again or closes the sheet.
+    // Empty `newText` is a legitimate "clear the field" delete (the
+    // Backspace button shortens to empty); the wire shape stays valid
+    // because `start=0, end=prev.length, value=""` encodes cleanly.
     suspend fun sendImeText(newText: String) {
         val ch = channel ?: return logW("sendImeText: not connected")
         if (_imePrompt.value == null) return logW("sendImeText: no active IME prompt")
-        if (newText.isEmpty()) return
-        val pos = newText.length - 1
-        logI("sendImeText: \"$newText\" pos=$pos imeCtr=$imeCounter fieldCtr=$fieldCounter")
+        val prev = prevTvText
+        if (newText == prev) return
+        logI("sendImeText: \"$newText\" prevLen=${prev.length} imeCtr=$imeCounter fieldCtr=$fieldCounter")
         ch.send(RemoteMessage.ImeBatchEdit(
             imeCounter = imeCounter,
             fieldCounter = fieldCounter,
             editInfo = listOf(RemoteEditInfo(
                 insert = 1,
-                textFieldStatus = RemoteImeObject(start = pos, end = pos, value = newText),
+                textFieldStatus = RemoteImeObject(start = 0, end = prev.length, value = newText),
             )),
         ))
+        prevTvText = newText
     }
 
     // Submit / "Done" — sends KEYCODE_ENTER, which is what the on-screen
@@ -488,7 +505,7 @@ class AndroidTvSession(
     // has focus.
     fun openImePrompt() {
         if (_imePrompt.value != null) return
-        _imePrompt.value = lastTvField ?: AndroidTvImePrompt(
+        val seed = lastTvField ?: AndroidTvImePrompt(
             appPackage = "",
             appLabel = "",
             label = "",
@@ -496,6 +513,13 @@ class AndroidTvSession(
             selectionStart = 0,
             selectionEnd = 0,
         )
+        _imePrompt.value = seed
+        // Mirror the TV's current field content so the next sendImeText
+        // span-replaces over the right range. Without this, the first
+        // keystroke would [0..0]-replace and leave anything the TV
+        // already had (e.g., a previously-typed search query) prefixed
+        // to the user's new input.
+        prevTvText = seed.value
     }
 
     fun closeImePrompt() {
