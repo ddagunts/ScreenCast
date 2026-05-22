@@ -42,11 +42,12 @@ import io.github.ddagunts.screencast.androidtv.AndroidTvImePrompt
 import kotlinx.coroutines.delay
 
 // Phone-side keyboard buffer. The user types here; every change is fed
-// back to the session as the new full-buffer string. The session computes
-// the diff against what it last sent and emits one RemoteImeBatchEdit
-// span replacement that, applied to the TV's view, yields the new
-// buffer. Counters ride on every frame and are echo-driven (the canonical
-// Android-TV-Remote-v2 mechanism, see AndroidTvSession.sendImeText).
+// back to the session as the new full-buffer string. The session wraps
+// that into one RemoteImeBatchEdit per canonical androidtvremote2
+// `send_text` shape (value=full buffer, start=end=len-1) — the TV reads
+// it as "set the focused field to this text" and applies its own diff.
+// Counters ride on every frame and are echo-driven (see
+// AndroidTvSession.sendImeText).
 //
 // Design notes:
 //   * Pre-populated from the TV's last-known field value so the user
@@ -92,9 +93,10 @@ fun AndroidTvImeSheet(
 
     // Debounced live send. Every keystroke cancels the previous launch
     // and starts a new 50 ms delay, so a burst of fast typing collapses
-    // into one send per pause. The session deduplicates against its own
-    // lastSentText, so an initial-frame call with the seed value is a
-    // harmless no-op.
+    // into one send per pause. The session unconditionally re-sends the
+    // full buffer per canonical androidtvremote2 semantics; the TV
+    // re-applies idempotently, so the seed-value frame on first open is
+    // harmless.
     LaunchedEffect(tfv.text) {
         delay(50)
         onTextChange(tfv.text)

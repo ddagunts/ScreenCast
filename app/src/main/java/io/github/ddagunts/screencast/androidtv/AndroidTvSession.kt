@@ -71,6 +71,32 @@ class AndroidTvSession(
     private val openLock = Mutex()
     @Volatile private var manuallyClosed = false
 
+    // Cumulative reconnect attempts since the last steady-state connection.
+    // The reason this is a session field rather than a parameter threaded
+    // through attemptConnect: the prior design's `onTransportClosed` always
+    // restarted at attempt=1, so backoff never grew and MAX_RECONNECT_ATTEMPTS
+    // was never reached. Now we own the counter here, bump it on every
+    // unexpected close, and reset only after stability — see [stabilityJob].
+    // Guarded by [openLock].
+    private var consecutiveFailures = 0
+
+    // Single-flight guard for the reconnect chain. If a chain is already
+    // pending/in-flight, additional transport-close events are ignored — they
+    // can pile up when our own teardown of a stale channel triggers its read
+    // loop's onClose callback. Without the guard, each such fire spawned an
+    // independent reconnect chain and the connect rate to the TV doubled
+    // (then tripled, etc.) every cycle.
+    @Volatile private var reconnectJob: Job? = null
+
+    // Reset [consecutiveFailures] back to 0 if we stay Active for this long.
+    // Cancelled on any close so a brief flap doesn't reset mid-storm.
+    private var stabilityJob: Job? = null
+
+    // Long-lived scope for reconnect + stability coroutines. Outlives any
+    // single attempt's [scope] because we need to spawn the next reconnect
+    // from a callback fired during the previous attempt's teardown.
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val _state = MutableStateFlow<AndroidTvState>(AndroidTvState.Idle)
     val state: StateFlow<AndroidTvState> = _state
 
@@ -93,34 +119,14 @@ class AndroidTvSession(
     // thread via openImePrompt().
     @Volatile private var lastTvField: AndroidTvImePrompt? = null
 
-    // Diff base for outbound ImeBatchEdit: what we believe the TV's focused
-    // field currently contains, given the edits we've already pushed.
-    // Seeded by openImePrompt() from the TV's last-known field value,
-    // advanced inside sendImeText() after each successful send, cleared on
-    // close / disconnect. The session — not the UI sheet — owns this so
-    // back-to-back sends from a fast typist can't race on the diff base.
-    @Volatile private var lastSentText: String = ""
-
     // Counters carried on every outbound ImeBatchEdit. Per the canonical
     // androidtvremote2 (Python) library, BOTH counters are echo-driven:
     // they start at 0, are NEVER incremented by the sender, and are
     // updated only when the TV pushes a remote_ime_batch_edit message
-    // back to us. The TV seeds them with its own values on the first
-    // echo; subsequent sends play those back unchanged, the TV bumps and
-    // echoes again, and the loop continues. We tried the opposite (bump
-    // locally, ignore echoes) in an earlier iteration and the TV silently
-    // dropped every edit — matching canonical Python is the highest-
-    // confidence interpretation.
+    // back to us. We tried the opposite (bump locally) and the TV
+    // silently dropped every edit.
     @Volatile private var imeCounter: Int = 0
     @Volatile private var fieldCounter: Int = 0
-
-    // Serializes sendImeText() so the (read lastSentText → compute diff →
-    // build message → write → advance lastSentText) sequence is atomic.
-    // Without this, two viewModelScope.launch sends triggered by fast
-    // typing could see the same lastSentText, both diff against it, and
-    // emit overlapping span replacements that the TV applies as
-    // duplicates.
-    private val imeMutex = Mutex()
 
     // Connect runs the blocking TLS handshake + the polo handshake messages,
     // so we always switch to Dispatchers.IO. Without this, callers on the
@@ -129,6 +135,11 @@ class AndroidTvSession(
     // inside attemptConnect's catch, sending the session into an unlogged
     // reconnect loop. The withContext here is the load-bearing fix.
     suspend fun connect() = withContext(Dispatchers.IO) {
+        // Cancel any in-flight reconnect chain BEFORE acquiring the lock —
+        // the chain holds openLock during its own attemptConnect calls, so
+        // taking the lock first would deadlock waiting for ourselves.
+        reconnectJob?.cancel()
+        stabilityJob?.cancel()
         openLock.withLock {
             logI("session.connect() entry; current state = ${_state.value}")
             if (_state.value is AndroidTvState.Active) {
@@ -136,20 +147,48 @@ class AndroidTvSession(
                 return@withLock
             }
             manuallyClosed = false
-            attemptConnect(attempt = 0)
+            consecutiveFailures = 0
+            try {
+                attemptConnect(attempt = 0)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                // Initial connect failed (TLS / handshake). Kick off the
+                // reconnect chain inline so the UI sees Reconnecting state
+                // grow through the same backoff curve as a transport drop.
+                consecutiveFailures = 1
+                scheduleReconnect(consecutiveFailures, t)
+            }
         }
     }
 
     private suspend fun attemptConnect(attempt: Int) {
         logI("attemptConnect(attempt=$attempt) starting → ${device.host}:${device.port}")
         _state.value = if (attempt == 0) AndroidTvState.Connecting else AndroidTvState.Reconnecting(attempt)
+
+        // Tear down any prior channel/scope before opening a new one. Without
+        // this, the previous attempt's socket stays half-open and its read
+        // loop eventually fires onTransportClosed — competing with the new
+        // channel for reconnect scheduling.
+        readerJob?.cancel()
+        runCatching { channel?.close() }
+        channel = null
+        scope?.cancel()
+
         val sc = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = sc
         val ch = AndroidTvRemoteChannel(device.host, device.port, clientMaterial, serverCertPin)
+        // Assign `channel = ch` before ch.connect so the onTransportClosed
+        // identity check (`closingChannel !== channel`) treats THIS channel
+        // as current even if its read loop fires immediately after launch.
+        channel = ch
         try {
             logD("attemptConnect: opening TLS to remote port")
-            readerJob = ch.connect { e -> onTransportClosed(e) }
-            channel = ch
+            // Pass `ch` through the closure so onTransportClosed can identify
+            // which channel reported the close — needed because our explicit
+            // teardown of a stale channel above also triggers its onClose,
+            // and we must ignore those stale fires.
+            readerJob = ch.connect { e -> onTransportClosed(ch, e) }
             logD("attemptConnect: TLS up, sending RemoteConfigure (code1=622)")
             // Handshake: Configure carries device info; SetActive turns
             // the channel "on". The magic constant 622 matches every
@@ -172,34 +211,77 @@ class AndroidTvSession(
             sc.launch { observeIncoming(ch) }
             _state.value = AndroidTvState.Active
             logI("ATV session active to ${device.host}")
+
+            // Reset the failure counter once we've been Active for
+            // STABILITY_GRACE_MS — a quick drop right after Active (e.g. the
+            // Basement TV rejection pattern: handshake → RemoteError → close)
+            // should keep growing the backoff so we eventually surface Error,
+            // not silently loop forever at 1s intervals.
+            stabilityJob?.cancel()
+            stabilityJob = backgroundScope.launch {
+                delay(STABILITY_GRACE_MS)
+                openLock.withLock {
+                    if (_state.value is AndroidTvState.Active && consecutiveFailures > 0) {
+                        logI("connection stable for ${STABILITY_GRACE_MS}ms; reset failure counter")
+                        consecutiveFailures = 0
+                    }
+                }
+            }
         } catch (t: Throwable) {
             logE("attemptConnect failed for ${device.host}:${device.port}", t)
-            ch.close()
-            channel = null
+            runCatching { ch.close() }
+            if (channel === ch) channel = null
             if (manuallyClosed) {
                 _state.value = AndroidTvState.Idle
                 return
             }
-            scheduleReconnect(attempt + 1, t)
+            // attemptConnect-thrown failures (TLS handshake, send errors)
+            // count against the same budget as transport closes. Bump and
+            // retry from the catch in scheduleReconnect.
+            throw t
         }
     }
 
-    private fun onTransportClosed(e: Throwable?) {
+    private fun onTransportClosed(closingChannel: AndroidTvRemoteChannel, e: Throwable?) {
+        // Stale fire: our own teardown of a prior channel in attemptConnect
+        // triggers that channel's read loop to unwind and call onClose. Those
+        // calls used to spawn their own reconnect chains, racing the chain
+        // we actually wanted. Filter by identity.
+        if (closingChannel !== channel) {
+            logD("transport closed for stale channel; ignoring")
+            return
+        }
         if (manuallyClosed) {
             _state.value = AndroidTvState.Idle
             return
         }
         logW("ATV transport closed: ${e?.message}")
-        // Schedule reconnect on a fresh scope; the current channel scope
-        // is being torn down by the read-loop unwind.
-        val sc = CoroutineScope(Dispatchers.IO)
-        sc.launch { scheduleReconnect(1, e ?: Throwable("transport closed")) }
+        // Single-flight: if a chain is already running (or queued behind
+        // openLock), don't start another. The earlier design launched a
+        // fresh CoroutineScope per close and each one independently scheduled
+        // a reconnect — every successful-then-immediately-failed attempt
+        // doubled the number of parallel chains, hammering the TV.
+        if (reconnectJob?.isActive == true) {
+            logD("reconnect already in flight; not scheduling another")
+            return
+        }
+        reconnectJob = backgroundScope.launch {
+            openLock.withLock {
+                if (manuallyClosed) return@withLock
+                consecutiveFailures += 1
+                scheduleReconnect(consecutiveFailures, e ?: Throwable("transport closed"))
+            }
+        }
     }
 
     private suspend fun scheduleReconnect(attempt: Int, cause: Throwable) {
         if (attempt > MAX_RECONNECT_ATTEMPTS) {
             logE("ATV ${device.host}: gave up after $MAX_RECONNECT_ATTEMPTS reconnect attempts", cause)
             _state.value = AndroidTvState.Error(cause.message ?: "ATV connection lost")
+            // Tear down so a half-open socket doesn't keep firing onClose.
+            readerJob?.cancel()
+            runCatching { channel?.close() }
+            channel = null
             return
         }
         // Exponential backoff capped at 10 s. Matches Cast V2 reconnect
@@ -210,8 +292,19 @@ class AndroidTvSession(
         logW("scheduleReconnect attempt=$attempt delay=${delayMs}ms (cause: ${cause.message})")
         _state.value = AndroidTvState.Reconnecting(attempt)
         delay(delayMs)
-        try { attemptConnect(attempt) } catch (e: CancellationException) { throw e }
-        catch (t: Throwable) { scheduleReconnect(attempt + 1, t) }
+        if (manuallyClosed) return
+        try {
+            attemptConnect(attempt)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // Bump the cumulative counter (not the local `attempt`) so that
+            // any in-flight transport-close events that also incremented it
+            // are reflected. Without this we'd retry the same backoff slot
+            // twice.
+            consecutiveFailures += 1
+            scheduleReconnect(consecutiveFailures, t)
+        }
     }
 
     private suspend fun observeIncoming(ch: AndroidTvRemoteChannel) {
@@ -276,18 +369,20 @@ class AndroidTvSession(
 
     fun disconnect() {
         manuallyClosed = true
+        reconnectJob?.cancel(); reconnectJob = null
+        stabilityJob?.cancel(); stabilityJob = null
         readerJob?.cancel()
         runCatching { channel?.close() }
         channel = null
         scope?.cancel()
         scope = null
+        consecutiveFailures = 0
         _state.value = AndroidTvState.Idle
         // IME state belongs to the connection — drop it so the next
         // connect doesn't replay a stale prompt or stale counters
         // against a fresh session.
         _imePrompt.value = null
         lastTvField = null
-        lastSentText = ""
         imeCounter = 0
         fieldCounter = 0
     }
@@ -337,37 +432,40 @@ class AndroidTvSession(
         ch.send(RemoteMessage.AppLinkLaunchRequest(uri))
     }
 
-    // Push the phone-side new text to the TV by diffing against the
-    // last-sent text and emitting one RemoteImeBatchEdit with a single
-    // span replacement. This is the canonical Android-TV-Remote-v2 text
-    // entry mechanism — Bluetooth-keyboard-style RemoteKeyInject of
-    // letter keycodes does NOT reach focused text fields on real TV
-    // firmware (we tried; it silently does nothing).
+    // Push the phone-side full text buffer to the TV as one
+    // RemoteImeBatchEdit. Matches canonical androidtvremote2 (Python)
+    // `send_text` exactly: `value` is the FULL buffer, `start == end ==
+    // len(value) - 1`. This is NOT a span replacement in the usual sense —
+    // the wild firmware reads it as "set the field's full value to `value`
+    // with cursor at len-1" and diffs against its own previous state. An
+    // earlier diff-based shape (insert/delete only the changed slice) was
+    // silently dropped by the TV: the IME sheet would open with the right
+    // app focused but no letters ever appeared.
     //
     // Counters: both ime_counter and field_counter ride on every frame.
-    // Per canonical Python (tronikos/androidtvremote2), neither is ever
-    // bumped by the sender — they ratchet up via TV echoes only.
-    // Re-using the last echoed values on the next send is exactly what
-    // the wild firmware expects.
+    // Per canonical Python, neither is ever bumped by the sender — they
+    // ratchet up via TV echoes only and stay at 0 until the first echo.
     //
-    // No-op if there's no active prompt — guards against the user
-    // pasting before tapping the keyboard button, or a stale callback
-    // firing after the sheet closed.
-    //
-    // Serialized by imeMutex so two viewModelScope.launch sends from
-    // fast typing can't both diff against the same lastSentText.
-    suspend fun sendImeText(newText: String) = imeMutex.withLock {
-        val ch = channel ?: return@withLock run { logW("sendImeText: not connected") }
-        if (_imePrompt.value == null) return@withLock run { logW("sendImeText: no active IME prompt") }
-        if (newText == lastSentText) return@withLock
-        val diff = computeImeDiff(lastSentText, newText) ?: return@withLock
-        logI("sendImeText: \"$lastSentText\" → \"$newText\" diff=[${diff.start}..${diff.end})=\"${diff.value}\" imeCtr=$imeCounter fieldCtr=$fieldCounter")
+    // No-op on empty input: canonical Python raises on empty, and an
+    // encoded `start=-1` would land as a huge varint on the wire. The
+    // sheet's Backspace button mutates its own TextFieldValue down to
+    // empty and we just stop sending when there's nothing to mirror;
+    // the TV keeps whatever single char it has until the user types
+    // again or closes the sheet.
+    suspend fun sendImeText(newText: String) {
+        val ch = channel ?: return logW("sendImeText: not connected")
+        if (_imePrompt.value == null) return logW("sendImeText: no active IME prompt")
+        if (newText.isEmpty()) return
+        val pos = newText.length - 1
+        logI("sendImeText: \"$newText\" pos=$pos imeCtr=$imeCounter fieldCtr=$fieldCounter")
         ch.send(RemoteMessage.ImeBatchEdit(
             imeCounter = imeCounter,
             fieldCounter = fieldCounter,
-            editInfo = listOf(RemoteEditInfo(insert = 1, textFieldStatus = diff)),
+            editInfo = listOf(RemoteEditInfo(
+                insert = 1,
+                textFieldStatus = RemoteImeObject(start = pos, end = pos, value = newText),
+            )),
         ))
-        lastSentText = newText
     }
 
     // Submit / "Done" — sends KEYCODE_ENTER, which is what the on-screen
@@ -376,35 +474,21 @@ class AndroidTvSession(
     // generic "click" focus dispatcher).
     suspend fun sendImeEnter() = sendKey(AndroidTvKey.Enter)
 
-    // Single-character backspace. Routed through the same ImeBatchEdit
-    // path as sendImeText() so we keep the diff base in sync: an empty-
-    // value span replacement of the trailing char. Exposed to the UI as
-    // an explicit button because some phone IMEs swallow the soft
-    // backspace at end-of-buffer instead of firing onValueChange.
-    suspend fun sendImeBackspace() = imeMutex.withLock {
-        val ch = channel ?: return@withLock run { logW("sendImeBackspace: not connected") }
-        if (_imePrompt.value == null) return@withLock run { logW("sendImeBackspace: no active IME prompt") }
-        if (lastSentText.isEmpty()) return@withLock
-        val newText = lastSentText.dropLast(1)
-        val diff = RemoteImeObject(start = newText.length, end = lastSentText.length, value = "")
-        logI("sendImeBackspace: \"$lastSentText\" → \"$newText\" imeCtr=$imeCounter fieldCtr=$fieldCounter")
-        ch.send(RemoteMessage.ImeBatchEdit(
-            imeCounter = imeCounter,
-            fieldCounter = fieldCounter,
-            editInfo = listOf(RemoteEditInfo(insert = 1, textFieldStatus = diff)),
-        ))
-        lastSentText = newText
-    }
+    // The sheet's Backspace button updates its own TextFieldValue and the
+    // change re-triggers the debounced send through sendImeText with the
+    // already-shortened full buffer, so there's nothing to do here at the
+    // wire level. Kept as a hook for the UI so the button still has a
+    // semantic call site.
+    suspend fun sendImeBackspace() {}
 
     // UI hook: user tapped the manual "keyboard" button. Seeds the sheet
     // from the TV's last-known focused field if we have one cached (so the
     // user starts editing what's actually on the TV); otherwise opens an
     // empty prompt and the first character lands wherever the TV currently
-    // has focus. lastSentText is seeded with the TV value so the first
-    // diff is computed from the right base.
+    // has focus.
     fun openImePrompt() {
         if (_imePrompt.value != null) return
-        val seed = lastTvField ?: AndroidTvImePrompt(
+        _imePrompt.value = lastTvField ?: AndroidTvImePrompt(
             appPackage = "",
             appLabel = "",
             label = "",
@@ -412,16 +496,19 @@ class AndroidTvSession(
             selectionStart = 0,
             selectionEnd = 0,
         )
-        lastSentText = seed.value
-        _imePrompt.value = seed
     }
 
     fun closeImePrompt() {
         _imePrompt.value = null
-        lastSentText = ""
     }
 
     companion object {
         private const val MAX_RECONNECT_ATTEMPTS = 6
+        // After this long in Active state, treat the connection as stable
+        // and zero the consecutiveFailures counter. Picked larger than the
+        // observed "TV rejects right after handshake" window (~50 ms per
+        // cycle in the Basement TV trace) but small enough that a real
+        // long-running session resets promptly.
+        private const val STABILITY_GRACE_MS = 10_000L
     }
 }
