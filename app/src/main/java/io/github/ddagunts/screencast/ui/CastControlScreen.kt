@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
@@ -71,6 +72,7 @@ private const val VOLUME_STEP_FINE = 0.01
 @Composable
 fun CastControlScreen(vm: CastViewModel) {
     val discovered by vm.discovered.collectAsStateWithLifecycle()
+    val manualHosts by vm.manualHosts.collectAsStateWithLifecycle()
     val activeCasts by vm.activeCasts.collectAsStateWithLifecycle()
     val atCap = activeCasts.size >= CastForegroundService.MAX_DEVICES
     // Per-host Fine toggle. Purely UI state — nothing crosses the wire, the
@@ -108,7 +110,14 @@ fun CastControlScreen(vm: CastViewModel) {
         AvailableSection(
             available = available,
             atCap = atCap,
+            manualHosts = manualHosts,
             onPick = { vm.startCast(it) },
+            onRemoveManual = { vm.removeManualHost(it) },
+        )
+
+        ManualHostRow(
+            label = "Connect by IP",
+            onAdd = { vm.addManualHost(it) },
         )
     }
 }
@@ -324,7 +333,9 @@ private fun StatusDot(color: Color) {
 private fun AvailableSection(
     available: List<CastDevice>,
     atCap: Boolean,
+    manualHosts: Set<String>,
     onPick: (CastDevice) -> Unit,
+    onRemoveManual: (String) -> Unit,
 ) {
     Text(
         when {
@@ -348,6 +359,7 @@ private fun AvailableSection(
     Card(Modifier.fillMaxWidth()) {
         LazyColumn(Modifier.heightForDeviceList(available.size)) {
             items(available) { d ->
+                val isManual = d.host in manualHosts
                 ListItem(
                     headlineContent = { Text(d.name) },
                     supportingContent = { Text(d.host) },
@@ -357,6 +369,13 @@ private fun AvailableSection(
                             contentDescription = null,
                         )
                     },
+                    trailingContent = if (isManual) {
+                        {
+                            FilledTonalIconButton(onClick = { onRemoveManual(d.host) }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Remove ${d.host}")
+                            }
+                        }
+                    } else null,
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = if (atCap) Modifier else Modifier.clickable { onPick(d) },
                 )

@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -29,6 +30,7 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -59,6 +61,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun WebRtcCastBody(vm: WebRtcViewModel) {
     val discovered by vm.discovered.collectAsStateWithLifecycle()
+    val manualHosts by vm.manualHosts.collectAsStateWithLifecycle()
     val session by vm.session.collectAsStateWithLifecycle()
     val appId by vm.appId.collectAsStateWithLifecycle()
     val casting = session != null
@@ -91,7 +94,14 @@ fun WebRtcCastBody(vm: WebRtcViewModel) {
         AvailableWebRtcSection(
             available = available,
             disabled = casting || appIdMissing,
+            manualHosts = manualHosts,
             onPick = { vm.startCast(it) },
+            onRemoveManual = { vm.removeManualHost(it) },
+        )
+
+        ManualHostRow(
+            label = "Connect by IP",
+            onAdd = { vm.addManualHost(it) },
         )
 
         FooterHint(appIdMissing)
@@ -222,7 +232,9 @@ private fun WebRtcStatusChip(status: String) {
 private fun AvailableWebRtcSection(
     available: List<CastDevice>,
     disabled: Boolean,
+    manualHosts: Set<String>,
     onPick: (CastDevice) -> Unit,
+    onRemoveManual: (String) -> Unit,
 ) {
     Text(
         "Available Chromecasts",
@@ -242,6 +254,7 @@ private fun AvailableWebRtcSection(
     Card(Modifier.fillMaxWidth()) {
         LazyColumn(Modifier.height((minOf(available.size, 6) * 72).dp)) {
             items(available) { d ->
+                val isManual = d.host in manualHosts
                 ListItem(
                     headlineContent = { Text(d.name) },
                     supportingContent = { Text(d.host) },
@@ -251,6 +264,13 @@ private fun AvailableWebRtcSection(
                             contentDescription = null,
                         )
                     },
+                    trailingContent = if (isManual) {
+                        {
+                            FilledTonalIconButton(onClick = { onRemoveManual(d.host) }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Remove ${d.host}")
+                            }
+                        }
+                    } else null,
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = if (disabled) Modifier else Modifier.clickable { onPick(d) },
                 )

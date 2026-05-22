@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class CastDevice(val name: String, val host: String, val port: Int)
 
+// Cast V2 always listens on 8009; mDNS advertises it but a manually entered
+// device skips mDNS, so we use this default.
+const val CHROMECAST_DEFAULT_PORT = 8009
+
 class CastDiscovery(context: Context) {
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val devices = mutableMapOf<String, CastDevice>()

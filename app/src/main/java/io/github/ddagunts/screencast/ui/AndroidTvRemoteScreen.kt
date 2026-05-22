@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Home
@@ -78,6 +79,7 @@ import io.github.ddagunts.screencast.androidtv.AndroidTvVolume
 @Composable
 fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
     val discovered by vm.discovered.collectAsStateWithLifecycle()
+    val manualHosts by vm.manualHosts.collectAsStateWithLifecycle()
     val paired by vm.paired.collectAsStateWithLifecycle()
     val currentHost by vm.currentHost.collectAsStateWithLifecycle()
     val state by vm.currentState.collectAsStateWithLifecycle()
@@ -89,9 +91,12 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
         DevicePicker(
             discovered = discovered,
             paired = paired,
+            manualHosts = manualHosts,
             onPair = { vm.startPairing(it) },
             onSelect = { vm.selectDevice(it) },
             onForget = { vm.unpair(it) },
+            onAddManual = { vm.addManualHost(it) },
+            onRemoveManual = { vm.removeManualHost(it) },
         )
     } else {
         val device = discovered.firstOrNull { it.host == currentHost } ?: paired
@@ -140,9 +145,12 @@ fun AndroidTvRemoteScreen(vm: AndroidTvViewModel) {
 private fun DevicePicker(
     discovered: List<AndroidTvDevice>,
     paired: List<io.github.ddagunts.screencast.androidtv.AndroidTvPersistence.Entry>,
+    manualHosts: Set<String>,
     onPair: (AndroidTvDevice) -> Unit,
     onSelect: (AndroidTvDevice) -> Unit,
     onForget: (String) -> Unit,
+    onAddManual: (String) -> Unit,
+    onRemoveManual: (String) -> Unit,
 ) {
     val pairedHosts = paired.map { it.host }.toSet()
     val pairedDiscovered = discovered.filter { it.host in pairedHosts }
@@ -178,11 +186,19 @@ private fun DevicePicker(
             Text("Discovered", style = MaterialTheme.typography.titleSmall)
             Card(Modifier.fillMaxWidth()) {
                 newDiscovered.forEach { d ->
+                    val isManual = d.host in manualHosts
                     ListItem(
                         headlineContent = { Text(d.name) },
                         supportingContent = { Text(d.host) },
                         trailingContent = {
-                            TextButton(onClick = { onPair(d) }) { Text("Pair") }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { onPair(d) }) { Text("Pair") }
+                                if (isManual) {
+                                    IconButton(onClick = { onRemoveManual(d.host) }) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Remove ${d.host}")
+                                    }
+                                }
+                            }
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
@@ -214,6 +230,10 @@ private fun DevicePicker(
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        ManualHostRow(
+            label = "Connect by IP",
+            onAdd = onAddManual,
+        )
     }
 }
 

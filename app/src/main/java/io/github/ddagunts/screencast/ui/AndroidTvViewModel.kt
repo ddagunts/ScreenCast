@@ -12,17 +12,44 @@ import io.github.ddagunts.screencast.androidtv.AndroidTvPersistence
 import io.github.ddagunts.screencast.androidtv.AndroidTvRemote
 import io.github.ddagunts.screencast.androidtv.AndroidTvState
 import io.github.ddagunts.screencast.androidtv.AndroidTvVolume
+import io.github.ddagunts.screencast.util.ManualHostsStore
 import io.github.ddagunts.screencast.util.logE
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class AndroidTvViewModel(app: Application) : AndroidViewModel(app) {
 
     private val discovery = AndroidTvDiscovery(app).also { it.start() }
-    val discovered: StateFlow<List<AndroidTvDevice>> = discovery.flow
+
+    // Manual IPs entered by the user — show up in the picker exactly like
+    // mDNS-discovered devices. The pair/connect flow doesn't care where the
+    // device entry came from; only the host string matters.
+    private val manualStore = ManualHostsStore(app, "atv")
+    private val _manualHosts = MutableStateFlow(manualStore.list())
+    val manualHosts: StateFlow<Set<String>> = _manualHosts
+
+    val discovered: StateFlow<List<AndroidTvDevice>> = combine(
+        discovery.flow, _manualHosts,
+    ) { mdns, manual ->
+        val mdnsHosts = mdns.map { it.host }.toSet()
+        val manualOnly = manual.filterNot { it in mdnsHosts }
+            .map { AndroidTvDevice(name = it, host = it) }
+        (mdns + manualOnly).sortedBy { it.name }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun addManualHost(host: String) {
+        _manualHosts.value = manualStore.add(host)
+    }
+
+    fun removeManualHost(host: String) {
+        _manualHosts.value = manualStore.remove(host)
+    }
 
     private val certStore = AndroidTvCertStore(app)
     private val persistence = AndroidTvPersistence(app)

@@ -10,18 +10,45 @@ import io.github.ddagunts.screencast.CastMode
 import io.github.ddagunts.screencast.MediaProjectionRequestActivity
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastDiscovery
+import io.github.ddagunts.screencast.cast.CHROMECAST_DEFAULT_PORT
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import io.github.ddagunts.screencast.media.Resolution
 import io.github.ddagunts.screencast.media.StreamConfig
 import io.github.ddagunts.screencast.media.StreamConfigStore
+import io.github.ddagunts.screencast.util.ManualHostsStore
 
 class CastViewModel(app: Application) : AndroidViewModel(app) {
 
     private val discovery = CastDiscovery(app).also { it.start() }
-    val discovered: StateFlow<List<CastDevice>> = discovery.flow
+
+    // Manual IPs entered by the user. Merged with mDNS results into a single
+    // surfaced `discovered` flow so the picker UI doesn't need to care which
+    // source a device came from. Shared category "cast" with WebRtcViewModel
+    // — a manually added Chromecast shows up in both modes.
+    private val manualStore = ManualHostsStore(app, "cast")
+    private val _manualHosts = MutableStateFlow(manualStore.list())
+    val manualHosts: StateFlow<Set<String>> = _manualHosts
+
+    val discovered: StateFlow<List<CastDevice>> = combine(
+        discovery.flow, _manualHosts,
+    ) { mdns, manual ->
+        val mdnsHosts = mdns.map { it.host }.toSet()
+        val manualOnly = manual.filterNot { it in mdnsHosts }
+            .map { CastDevice(name = it, host = it, port = CHROMECAST_DEFAULT_PORT) }
+        (mdns + manualOnly).sortedBy { it.name }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun addManualHost(host: String) {
+        _manualHosts.value = manualStore.add(host)
+    }
+
+    fun removeManualHost(host: String) {
+        _manualHosts.value = manualStore.remove(host)
+    }
 
     // Active + errored casts, keyed by host. UI renders every entry; hosts
     // already in this map are filtered out of the "Available" picker list.

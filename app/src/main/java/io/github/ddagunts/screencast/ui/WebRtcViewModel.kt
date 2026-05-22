@@ -8,11 +8,14 @@ import io.github.ddagunts.screencast.WebRtcForegroundService
 import io.github.ddagunts.screencast.WebRtcProjectionRequestActivity
 import io.github.ddagunts.screencast.cast.CastDevice
 import io.github.ddagunts.screencast.cast.CastDiscovery
+import io.github.ddagunts.screencast.cast.CHROMECAST_DEFAULT_PORT
+import io.github.ddagunts.screencast.util.ManualHostsStore
 import io.github.ddagunts.screencast.webrtc.VideoPreset
 import io.github.ddagunts.screencast.webrtc.WebRtcConfigStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 // Separate ViewModel from CastViewModel — its discovery lifecycle is
@@ -23,7 +26,29 @@ import kotlinx.coroutines.flow.stateIn
 class WebRtcViewModel(app: Application) : AndroidViewModel(app) {
 
     private val discovery = CastDiscovery(app).also { it.start() }
-    val discovered: StateFlow<List<CastDevice>> = discovery.flow
+
+    // Shared "cast" manual-hosts store with CastViewModel — same underlying
+    // Chromecast targets, so a manual add in one mode is visible in the other.
+    private val manualStore = ManualHostsStore(app, "cast")
+    private val _manualHosts = MutableStateFlow(manualStore.list())
+    val manualHosts: StateFlow<Set<String>> = _manualHosts
+
+    val discovered: StateFlow<List<CastDevice>> = combine(
+        discovery.flow, _manualHosts,
+    ) { mdns, manual ->
+        val mdnsHosts = mdns.map { it.host }.toSet()
+        val manualOnly = manual.filterNot { it in mdnsHosts }
+            .map { CastDevice(name = it, host = it, port = CHROMECAST_DEFAULT_PORT) }
+        (mdns + manualOnly).sortedBy { it.name }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun addManualHost(host: String) {
+        _manualHosts.value = manualStore.add(host)
+    }
+
+    fun removeManualHost(host: String) {
+        _manualHosts.value = manualStore.remove(host)
+    }
 
     val session: StateFlow<WebRtcForegroundService.SessionSnapshot?> =
         WebRtcForegroundService.sessionFlow.stateIn(
