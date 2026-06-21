@@ -1,0 +1,1 @@
+• App icon: smaller + subtle purple tint for better adaptive-icon fit
