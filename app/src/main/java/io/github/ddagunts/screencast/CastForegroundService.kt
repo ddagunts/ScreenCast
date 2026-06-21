@@ -301,7 +301,7 @@ class CastForegroundService : Service() {
         val httpPort = ServerSocket(0).use { it.localPort }
 
         val token = newStreamToken()
-        val srv = HttpStreamServer(ip, httpPort, seg, token).also { server = it }
+        val srv = HttpStreamServer(ip, httpPort, seg, token, config.resolution).also { server = it }
         srv.start()
 
         val url = "http://$ip:$httpPort/c/$token/stream.m3u8"

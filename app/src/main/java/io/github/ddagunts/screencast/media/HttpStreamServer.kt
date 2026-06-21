@@ -23,6 +23,7 @@ class HttpStreamServer(
     private val port: Int,
     private val segmenter: HlsSegmenter,
     private val token: String,
+    private val resolution: Resolution,
 ) {
     private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
@@ -51,7 +52,7 @@ class HttpStreamServer(
                 get("/c/{token}/stream.m3u8") {
                     if (!authorized(call.parameters["token"])) { call.respondText("not found", status = HttpStatusCode.NotFound); return@get }
                     logI("GET stream.m3u8 (master) from ${call.request.local.remoteHost}")
-                    call.respondText(MASTER_PLAYLIST, ContentType("application", "x-mpegURL"))
+                    call.respondText(masterPlaylist, ContentType("application", "x-mpegURL"))
                 }
                 get("/c/{token}/media.m3u8") {
                     if (!authorized(call.parameters["token"])) { call.respondText("not found", status = HttpStatusCode.NotFound); return@get }
@@ -88,11 +89,18 @@ class HttpStreamServer(
         engine = null
     }
 
-    companion object {
-        private val MASTER_PLAYLIST = """
-            #EXTM3U
-            #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=3500000,CODECS="mp4a.40.2,avc1.42E01F",RESOLUTION=1280x720,NAME="720"
-            media.m3u8
-        """.trimIndent() + "\n"
-    }
+    private val masterPlaylist: String
+        get() {
+            val avcLevel = when {
+                resolution.width * resolution.height >= 1920 * 1080 -> "28"
+                resolution.width * resolution.height >= 1280 * 720 -> "1F"
+                else -> "1E"
+            }
+            return "#EXTM3U\n" +
+                "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=${resolution.bitrate}," +
+                "CODECS=\"mp4a.40.2,avc1.42E0$avcLevel\"," +
+                "RESOLUTION=${resolution.width}x${resolution.height}," +
+                "NAME=\"${resolution.label}\"\n" +
+                "media.m3u8\n"
+        }
 }

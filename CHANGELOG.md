@@ -4,6 +4,19 @@ All notable changes to ScreenCast are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0]
+
+### Fixed
+- HLS master playlist (`stream.m3u8`) hardcoded 720p / 3.5 Mbps metadata
+  regardless of the user's actual resolution setting. Now reflects the real
+  `Resolution` (bandwidth, dimensions, AVC level) so hls.js sees correct
+  stream attributes.
+
+### Changed
+- Kotlin 2.3.21 → 2.4.0, Compose BOM 2026.05 → 2026.06, Gradle wrapper
+  9.5.1 → 9.6.0.
+
+
 ## [0.11.0]
 
 ### Added
@@ -440,6 +453,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     pin store), mDNS discovery over UDP multicast, and the inbound
     Ktor HLS server (NSC does not govern `ServerSocket`s).
 
+[0.14.0]: https://github.com/ddagunts/ScreenCast/compare/v0.13.1...v0.14.0
 [0.11.0]: https://github.com/ddagunts/ScreenCast/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/ddagunts/ScreenCast/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/ddagunts/ScreenCast/compare/v0.10.0...v0.10.1

@@ -1,0 +1,2 @@
+• Fix: HLS master playlist now reports correct resolution/bitrate metadata
+• Kotlin 2.4.0, Compose BOM 2026.06, Gradle 9.6.0

@@ -41,6 +41,7 @@ cd "${REPO_ROOT}"
 # probe well-known Android Studio install paths for a bundled JBR with javac.
 if [ -z "${JAVA_HOME:-}" ]; then
     for candidate in \
+        "${HOME}/Downloads/android-studio-quail1-patch2-linux/android-studio/jbr" \
         "${HOME}/Downloads/android-studio-panda3-patch1-linux/android-studio/jbr" \
         "${HOME}/Android/android-studio/jbr" \
         "/opt/android-studio/jbr" \
